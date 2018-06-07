@@ -66,6 +66,10 @@ parser.add_argument('--adversarial', action='store_true',
 parser.add_argument('--reproduce', default='',
                     help='reproducing paper results (F|L|FL|L100|L1000)')
 
+parser.add_argument('--add-prob-layers', action='store_true')
+parser.add_argument('--prob-sample-low', default=0.25)
+parser.add_argument('--prob-sample-high', default=0.25)
+
 args = parser.parse_args()
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -80,7 +84,10 @@ def main():
     # create models and optimizers
     print("=> creating models...")
     classifier = archs.resnet50shared(pretrained=True).to(device)
-    decoder = archs.decoder(final_upsample_mode=args.upsample).to(device)
+    decoder = archs.decoder(
+        final_upsample_mode=args.upsample,
+        add_prob_layers=args.add_prob_layers,
+    ).to(device)
 
     optimizer = {
         "classifier": torch.optim.SGD(
@@ -133,7 +140,7 @@ def main():
 
         # train for one epoch
         tr_s = train_or_eval(train_loader, classifier, decoder,
-                             True, optimizer, epoch)
+                             train=True, optimizer=optimizer, epoch=epoch)
 
         # evaluate on validation set
         val_s = train_or_eval(val_loader, classifier, decoder)
@@ -187,11 +194,14 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
         if train and i > len(data_loader)*args.pot:
             break
 
+        p = torch.Tensor(input_.shape[0]).uniform_(0.25, 0.75)
+
         # measure data loading time
         data_time.update(time.time() - end)
 
         # move input and target on the device
         input_, target = input_.to(device), target.to(device)
+        p = p.to(device)
 
         # compute classifier prediction on the original images and get inner layers
         with torch.set_grad_enabled(train and (not args.fixed_classifier)):
@@ -227,7 +237,7 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
 
         with torch.set_grad_enabled(train):
             # compute mask and masked input
-            mask = decoder(layers)
+            mask = decoder(layers, p=p)
             input_m = input_*(1-mask)
 
             # update statistics
@@ -271,20 +281,25 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
             nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
 
             mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
+            if args.add_prob_layers:
+                # adjust to minimize deviation from p
+                mask_mean = (mask_mean - p).abs()
 
             # apply regularization loss only on non-trivially confused images
-            casme_loss = -args.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
+            regularization = -args.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
 
             # main loss for casme
             if args.adversarial:
-                casme_loss += -classifier_loss_m
+                loss = -classifier_loss_m
             else:
                 log_prob = F.log_softmax(output_m, 1)
                 prob = log_prob.exp()
                 negative_entropy = (log_prob * prob).sum(1)
-                # apply main loss only when original images are corrected classified
+                # apply main loss only when original images are correctly classified
                 negative_entropy_correct = negative_entropy * correct_on_clean.float()
-                casme_loss += negative_entropy_correct.mean()
+                loss = negative_entropy_correct.mean()
+
+            casme_loss = loss + regularization
 
             # update casme - compute gradient, do SGD step
             optimizer['decoder'].zero_grad()

@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 
+
 class Bottleneck(nn.Module):
     expansion = 4
 
@@ -42,6 +43,7 @@ class Bottleneck(nn.Module):
 
         return out
 
+
 class ResNet(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000):
@@ -76,8 +78,9 @@ class ResNet(nn.Module):
                 nn.BatchNorm2d(planes * block.expansion),
             )
 
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
+        layers = [
+            block(self.inplanes, planes, stride, downsample)
+        ]
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes))
@@ -100,6 +103,7 @@ class ResNet(nn.Module):
         x = self.fc(x)
 
         return x
+
 
 class ResNetShared(ResNet):
     def forward(self, x):
@@ -125,23 +129,28 @@ class ResNetShared(ResNet):
 
         return x, l
 
+
 def resnet50shared(pretrained=False, **kwargs):
     model = ResNetShared(Bottleneck, [3, 4, 6, 3], **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url('https://download.pytorch.org/models/resnet50-19c8e357.pth'))
     return model
 
+
 class Decoder(nn.Module):
 
-    def __init__(self, in_planes, final_upsample_mode = 'nearest'):
+    def __init__(self, in_planes, final_upsample_mode='nearest', add_prob_layers=False):
         super(Decoder, self).__init__()
+        self.add_prob_layers = add_prob_layers
 
-        self.conv1x1_1 = self._make_conv1x1_upsampled(in_planes[0], 64)
-        self.conv1x1_2 = self._make_conv1x1_upsampled(in_planes[1], 64, 2)
-        self.conv1x1_3 = self._make_conv1x1_upsampled(in_planes[2], 64, 4)
-        self.conv1x1_4 = self._make_conv1x1_upsampled(in_planes[3], 64, 8)
+        p_dim = 1 if self.add_prob_layers else 0
+
+        self.conv1x1_1 = self._make_conv1x1_upsampled(in_planes[0] + p_dim, 64)
+        self.conv1x1_2 = self._make_conv1x1_upsampled(in_planes[1] + p_dim, 64, 2)
+        self.conv1x1_3 = self._make_conv1x1_upsampled(in_planes[2] + p_dim, 64, 4)
+        self.conv1x1_4 = self._make_conv1x1_upsampled(in_planes[3] + p_dim, 64, 8)
         self.final = nn.Sequential(
-            nn.Conv2d(64 + 4*64, 1, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.Conv2d(64 + 4*64 + p_dim, 1, kernel_size=3, stride=1, padding=1, bias=True),
             nn.Sigmoid(),
             nn.Upsample(scale_factor=4, mode=final_upsample_mode)
         )
@@ -169,15 +178,28 @@ class Decoder(nn.Module):
                 nn.ReLU(inplace=True)
             )
     
-    def forward(self, l):
-        k = []
-        k.append(l[0])
-        k.append(self.conv1x1_1(l[1]))
-        k.append(self.conv1x1_2(l[2]))
-        k.append(self.conv1x1_3(l[3]))
-        k.append(self.conv1x1_4(l[4]))
+    def forward(self, l, p):
+        if self.add_prob_layers:
+            l = self.append_p(l, p)
 
+        k = [
+            l[0],
+            self.conv1x1_1(l[1]),
+            self.conv1x1_2(l[2]),
+            self.conv1x1_3(l[3]),
+            self.conv1x1_4(l[4]),
+        ]
         return self.final(torch.cat(k, 1))
+
+    def append_p(self, l, p):
+        new_l = []
+        for layer in l:
+            p_slice = p \
+                .expand(1, layer.shape[2], layer.shape[3], -1) \
+                .permute(3, 0, 1, 2)
+            new_l.append(torch.cat([layer, p_slice], dim=1))
+        return new_l
+
 
 def decoder(**kwargs):
     return Decoder([256, 512, 1024, 2048], **kwargs)
