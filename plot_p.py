@@ -62,8 +62,7 @@ def main():
         print('List of sampled batches:', sorted(perm))
 
     dir_path = args.plots_path
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
+    os.makedirs(dir_path, exist_ok=True)
 
     for i, (input, target) in enumerate(data_loader):
         print('{} '.format(i), end='', flush=True)
@@ -97,6 +96,7 @@ def main():
             axes[2, col].imshow(permute_image(masked_out[col]))
             axes[3, col].imshow(permute_image(inpainted[col]))
 
+            axes[0, col].set_title("{:.3f}".format(args.percentages[col] / 100), fontsize=5)
             axes[1, col].set_title("{:.3f}".format(fraction_masked[col]), fontsize=5)
 
         for ax in axes.flatten():
