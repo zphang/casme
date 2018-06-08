@@ -194,14 +194,16 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
         if train and i > len(data_loader)*args.pot:
             break
 
-        p = torch.Tensor(input_.shape[0]).uniform_(0.25, 0.75)
-
         # measure data loading time
         data_time.update(time.time() - end)
 
         # move input and target on the device
         input_, target = input_.to(device), target.to(device)
-        p = p.to(device)
+
+        if args.add_prob_layers:
+            p = torch.Tensor(input_.shape[0]).uniform_(0.25, 0.75).to(device)
+        else:
+            p = None
 
         # compute classifier prediction on the original images and get inner layers
         with torch.set_grad_enabled(train and (not args.fixed_classifier)):

@@ -181,6 +181,8 @@ class Decoder(nn.Module):
     def forward(self, l, p):
         if self.add_prob_layers:
             l = self.append_p(l, p)
+        else:
+            assert p is None
 
         k = [
             l[0],

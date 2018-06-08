@@ -8,6 +8,7 @@ import archs
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+
 def load_model(casm_path):
     name = casm_path.split('/')[-1].replace('.chk','')
 
@@ -18,12 +19,13 @@ def load_model(casm_path):
     classifier.load_state_dict(checkpoint['state_dict_classifier'])
     classifier.eval().to(device)
 
-    decoder = archs.decoder()
+    decoder = archs.decoder(add_prob_layers=checkpoint["args"].add_prob_layers)
     decoder.load_state_dict(checkpoint['state_dict_decoder'])
     decoder.eval().to(device)
     print("=> Model loaded.")
 
     return {'classifier': classifier, 'decoder': decoder, 'name': name}
+
 
 def get_masks_and_check_predictions(input, target, model):
     with torch.no_grad():
@@ -43,14 +45,17 @@ def get_masks_and_check_predictions(input, target, model):
 
         return mask.squeeze().cpu().numpy(), rectangular.squeeze().cpu().numpy(), isCorrect.cpu().numpy() 
 
-def get_mask(input, model, get_output=False):
+
+def get_mask(input, model, p=None, get_output=False):
     with torch.no_grad():
         input = input.to(device)
-        output, layers = model['classifier'](input)
+        classifier_output, layers = model['classifier'](input)
+        decoder_output = model['decoder'](layers, p=p)
         if get_output:
-            return model['decoder'](layers), output
+            return decoder_output, classifier_output
+        else:
+            return decoder_output
 
-        return model['decoder'](layers)
 
 def binarize_mask(mask):
     with torch.no_grad():
@@ -66,6 +71,7 @@ def binarize_mask(mask):
 
         return binarized_mask
 
+
 def get_largest_connected(m):
     mask, num_labels = scipy.ndimage.label(m)
     largest_label = np.argmax(np.bincount(
@@ -73,6 +79,7 @@ def get_largest_connected(m):
     largest_connected = (mask == largest_label)
 
     return largest_connected
+
 
 def get_bounding_box(m):
     x = m.any(1)
@@ -86,6 +93,7 @@ def get_bounding_box(m):
         box_mask[xmin:xmax+1, ymin:ymax+1] = 1
 
         return box_mask
+
 
 def get_rectangular_mask(m):
     return get_bounding_box(get_largest_connected(m))
