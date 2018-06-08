@@ -69,6 +69,7 @@ parser.add_argument('--reproduce', default='',
 parser.add_argument('--add-prob-layers', action='store_true')
 parser.add_argument('--prob-sample-low', default=0.25)
 parser.add_argument('--prob-sample-high', default=0.25)
+parser.add_argument('--prob-loss-func', default="l1")
 
 args = parser.parse_args()
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -285,7 +286,13 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
             mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
             if args.add_prob_layers:
                 # adjust to minimize deviation from p
-                mask_mean = (mask_mean - p).abs()
+                mask_mean = (mask_mean - p)
+                if args.prob_loss_func == "l1":
+                    mask_mean = mask_mean.abs()
+                elif args.prob_loss_func == "l2":
+                    mask_mean = mask_mean.pow(2)
+                else:
+                    raise KeyError(args.prob_loss_func)
 
             # apply regularization loss only on non-trivially confused images
             regularization = -args.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
