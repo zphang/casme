@@ -32,6 +32,10 @@ def save_checkpoint(state, args):
 
 
 def set_args(args):
+
+    os.makedirs(args.casms_path)
+    os.makedirs(args.log_path)
+    
     args.casms_path = os.path.join(args.casms_path, args.name)
     args.log_path = os.path.join(args.log_path, args.name) + '.log'
 
@@ -43,9 +47,6 @@ def set_args(args):
     string_args = ''
     for name in sorted(vars(args)):
         string_args += name + '=' + str(getattr(args, name)) + ', '
-
-    os.makedirs(args.casms_path)
-    os.makedirs(args.log_path)
 
     with open(args.log_path, 'a') as f:
         f.write(string_args + '\n')
