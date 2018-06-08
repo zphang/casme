@@ -33,9 +33,9 @@ def save_checkpoint(state, args):
 
 def set_args(args):
 
-    os.makedirs(args.casms_path)
-    os.makedirs(args.log_path)
-    
+    os.makedirs(args.casms_path, exist_ok=True)
+    os.makedirs(args.log_path, exist_ok=True)
+
     args.casms_path = os.path.join(args.casms_path, args.name)
     args.log_path = os.path.join(args.log_path, args.name) + '.log'
 
