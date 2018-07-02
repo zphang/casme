@@ -8,7 +8,7 @@ from model_basics import binarize_mask, get_mask
 
 def get_binarized_mask(input, model, p=None):
     mask = get_mask(input, model, p=p)
-    return binarize_mask(mask.clone())
+    return binarize_mask(mask.clone()), mask
 
 
 def get_masked_images(input, binary_mask, gray_scale=0, return_mask=False):

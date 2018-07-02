@@ -142,7 +142,7 @@ def confuse(output_path, model, classifiers, data_loader):
             normalized_input = input.clone()
             for id in range(input.size(0)):
                 normalize(normalized_input[id]) 
-            binary_mask = get_binarized_mask(normalized_input, model)
+            binary_mask, soft_mask = get_binarized_mask(normalized_input, model)
 
         masked_in, masked_out = get_masked_images(input, binary_mask)
         inpainted = inpaint(binary_mask, masked_out)
