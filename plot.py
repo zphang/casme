@@ -83,7 +83,7 @@ def main():
         ## get mask and masked images
         binary_mask, soft_mask = get_binarized_mask(normalized_input, model)
         soft_masked_image = normalized_input * (1-soft_mask)
-        for i in range(soft_masked_image.shape(0)):
+        for i in range(soft_masked_image.size(0)):
             denormalize(soft_masked_image[i])
         masked_in, masked_out = get_masked_images(input, binary_mask, 0.35)
         inpainted = inpaint(binary_mask, masked_out)
