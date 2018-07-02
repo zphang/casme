@@ -22,7 +22,7 @@ def load_model(casm_path):
     decoder = archs.decoder(
         add_prob_layers=getattr(checkpoint["args"], "add_prob_layers", None)
     )
-    print(checkpoint["args"])
+    print(checkpoint["args"], getattr(checkpoint["args"], "add_prob_layers", None))
     decoder.load_state_dict(checkpoint['state_dict_decoder'])
     decoder.eval().to(device)
     print("=> Model loaded.")
