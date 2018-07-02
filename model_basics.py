@@ -20,7 +20,7 @@ def load_model(casm_path):
     classifier.eval().to(device)
 
     decoder = archs.decoder(
-        add_prob_layers=getattr(checkpoint["args"], "add_prob_layers")
+        add_prob_layers=getattr(checkpoint["args"], "add_prob_layers", None)
     )
     decoder.load_state_dict(checkpoint['state_dict_decoder'])
     decoder.eval().to(device)
