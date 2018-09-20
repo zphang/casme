@@ -334,8 +334,6 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
                     raise KeyError(args.prob_loss_func)
 
             # apply regularization loss only on non-trivially confused images
-            print(nontrivially_confused.shape)
-            print(mask_mean.shape)
             regularization = -args.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
 
             # main loss for casme
