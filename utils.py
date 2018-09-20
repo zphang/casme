@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 
 import torch
 import torchvision.transforms as transforms
@@ -33,7 +34,7 @@ def inpaint(mask, masked_image):
         permuted_image = permute_image(masked_image[i], mul255=True)
         m = mask[i].squeeze().byte().numpy()
         inpainted_numpy = cv2.inpaint(permuted_image, m, 3, cv2.INPAINT_TELEA)  # cv2.INPAINT_NS
-        l.append(transforms.ToTensor()(inpainted_numpy).unsqueeze(0))
+        l.append(transforms.ToTensor()(np.expand_dims(inpainted_numpy, 2)).unsqueeze(0))
     inpainted_tensor = torch.cat(l, 0)
 
     return inpainted_tensor       
