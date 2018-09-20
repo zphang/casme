@@ -117,12 +117,12 @@ def main():
 
         ## plot
         for col in range(args.columns):
-            axes[0, col].set_title(target)
-            axes[0, col].imshow(permute_image(input[col]))
-            axes[1, col].imshow(permute_image(masked_in[col]))
-            axes[2, col].imshow(permute_image(masked_out[col]))
-            axes[3, col].imshow(permute_image(inpainted[col]))
-            axes[4, col].imshow(permute_image(soft_masked_image[col]))
+            axes[0, col].set_title(target[col])
+            axes[0, col].imshow(permute_image(input[col]), cmap="gray")
+            axes[1, col].imshow(permute_image(masked_in[col]), cmap="gray")
+            axes[2, col].imshow(permute_image(masked_out[col]), cmap="gray")
+            axes[3, col].imshow(permute_image(inpainted[col]), cmap="gray")
+            axes[4, col].imshow(permute_image(soft_masked_image[col]), cmap="gray")
 
         for ax in axes.flatten():
             ax.set_xticks([])
