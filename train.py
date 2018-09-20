@@ -131,6 +131,7 @@ def main():
     state_dict = torch.load(
         "/gpfs/data/geraslab/zphang/working/09.18.patch/FirstRun_1537315201.9966803/epoch_600/model.p")
     classifier.load_state_dict(state_dict["model"])
+    print(args.add_prob_layers)
     decoder = archs.decoder(
         final_upsample_mode=args.upsample,
         add_prob_layers=args.add_prob_layers,
