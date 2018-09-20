@@ -5,15 +5,29 @@ import torch
 import torch.nn.functional as F
 
 import archs
+import patch_classification.patch_model.torch.models_torch as models
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+MODEL_PARAMETERS = {
+    "number_of_classes": 3,
+    "num_filters": 16,
+    "input_channels": 1,
+    "first_layer_kernel_size": 7,
+    "first_layer_conv_stride": 2,
+    "first_pool_size": 3,
+    "first_pool_stride": 2,
+    "blocks_per_layer_list": [3, 4, 6, 3],
+    "block_strides_list": [1, 2, 2, 2],
+    "block_fn": "bottleneck",
+}
 
 
 def load_model(casm_path):
     name = casm_path.split('/')[-1].replace('.chk','')
 
     print("\n=> Loading model localized in '{}'".format(casm_path))
-    classifier = archs.resnet50shared()
+    classifier = models.PatchResNetV2(parameters=MODEL_PARAMETERS)
     checkpoint = torch.load(casm_path)
 
     classifier.load_state_dict(checkpoint['state_dict_classifier'])
