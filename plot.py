@@ -17,8 +17,6 @@ from utils import get_binarized_mask, get_masked_images, inpaint, permute_image
 import utilities.logger as logging_module
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data', metavar='DIR',
-                    help='path to dataset')
 parser.add_argument('--casm-path', default='',
                     help='path to model that generate masks')
 
