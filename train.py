@@ -25,14 +25,14 @@ DATA_CONFIG = {
         "test": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
     },
     "samples_per_epoch": {
-        "training": {'malignant': 100, 'benign': 200, 'unknown': 51700, 'outside': 48000},
-        # "training": {'malignant': 100 , 'benign': 200, 'unknown': 100, 'outside': 100},
+        # "training": {'malignant': 100, 'benign': 200, 'unknown': 51700, 'outside': 48000},
+        "training": {'malignant': 100 , 'benign': 200, 'unknown': 100, 'outside': 100},
         "validation": {'malignant': -1, 'benign': -1, 'unknown': -1, 'outside': -1},
         "test": {'malignant': -1, 'benign': -1, 'unknown': -1, 'outside': -1},
     },
     "parts_to_load": {
-        "training": {'malignant': 1, 'benign': 1, 'unknown': 6, 'outside': 5},
-        # "training": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
+        # "training": {'malignant': 1, 'benign': 1, 'unknown': 6, 'outside': 5},
+        "training": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
         "validation": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
         "test": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
     },
@@ -240,7 +240,7 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
 
         # compute classifier prediction on the original images and get inner layers
         with torch.set_grad_enabled(train and (not args.fixed_classifier)):
-            output, layers = classifier(input_)
+            output, layers = classifier(input_, return_intermediate=True)
             classifier_loss = classifier_criterion(output, target)
 
         # update metrics
