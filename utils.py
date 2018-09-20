@@ -41,7 +41,8 @@ def inpaint(mask, masked_image):
 
 def permute_image(image_tensor, mul255 = False):
     with torch.no_grad():
-        image = image_tensor.clone().squeeze().permute(1, 2, 0)
+        # image = image_tensor.clone().squeeze().permute(1, 2, 0)
+        image = image_tensor.clone().permute(1, 2, 0)
         if mul255:
             image *= 255
             image = image.byte()
