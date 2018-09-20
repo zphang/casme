@@ -241,6 +241,13 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
         # compute classifier prediction on the original images and get inner layers
         with torch.set_grad_enabled(train and (not args.fixed_classifier)):
             output, layers = classifier(input_, return_intermediate=True)
+
+            # Pad hack
+            layers[0] = F.pad(layers[0], (1, 1, 1, 1))
+            layers[1] = F.pad(layers[1], (1, 1, 1, 1))
+            layers[2] = F.pad(layers[2], (1, 0, 1, 0))
+            # End Pad hack
+
             classifier_loss = classifier_criterion(output, target)
 
         # update metrics
