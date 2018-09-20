@@ -161,6 +161,8 @@ def main():
         val=DataLoader(datasets.val, args.batch_size),
         test=None,
     )
+    datasets.train.new_epoch()
+    datasets.val.new_epoch()
 
     # training loop
     for epoch in range(args.epochs):
@@ -170,12 +172,10 @@ def main():
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
-        datasets.train.new_epoch()
         tr_s = train_or_eval(dataloaders.train, classifier, decoder,
                              train=True, optimizer=optimizer, epoch=epoch)
 
         # evaluate on validation set
-        datasets.val.new_epoch()
         val_s = train_or_eval(dataloaders.val, classifier, decoder)
 
         # save checkpoint
@@ -187,6 +187,7 @@ def main():
             'optimizer_decoder': optimizer['decoder'].state_dict(),
             'args': args,
         }, args)
+        datasets.train.new_epoch()
 
         # log
         with open(args.log_path, 'a') as f:
