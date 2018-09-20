@@ -376,6 +376,7 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
                       batch_time=batch_time, data_time=data_time,
                       loss=losses, acc=acc, loss_m=losses_m, acc_m=acc_m), flush=True)
             statistics.printOut()
+            print()
 
     if not train:
         print(' * Prec@1 {acc.avg:.3f} Prec@1(M) {acc_m.avg:.3f} '.format(acc=acc, acc_m=acc_m))
