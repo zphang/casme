@@ -66,6 +66,15 @@ def get_mask(input, model, use_p=None, get_output=False):
     with torch.no_grad():
         input = input.to(device)
         classifier_output, layers = model['classifier'](input, return_intermediate=True)
+
+        # Pad hack
+        layers[0] = F.pad(layers[0], (1, 1, 1, 1))
+        layers[1] = F.pad(layers[1], (1, 1, 1, 1))
+        layers[2] = F.pad(layers[2], (1, 0, 1, 0))
+        # End Pad hack
+
+
+
         decoder_output = model['decoder'](layers, use_p=use_p)
         if get_output:
             return decoder_output, classifier_output
