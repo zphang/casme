@@ -51,7 +51,7 @@ DATA_CONFIG = {
     "samples_per_epoch": {
         "training": {'malignant': 100, 'benign': 200, 'unknown': 51700, 'outside': 48000},
         # "training": {'malignant': 100 , 'benign': 200, 'unknown': 100, 'outside': 100},
-        "validation": {'malignant': 10, 'benign': 10, 'unknown': 10, 'outside': 10},
+        "validation": {'malignant': 10, 'benign': 10, 'unknown': 5, 'outside': 5},
         # "validation": {'malignant': -1, 'benign': -1, 'unknown': -1, 'outside': -1},
         "test": {'malignant': -1, 'benign': -1, 'unknown': -1, 'outside': -1},
     },
@@ -117,7 +117,7 @@ def main():
 
         ## plot
         for col in range(args.columns):
-            axes[0, col].set_title(target[col])
+            axes[0, col].set_title(target[col].item())
             axes[0, col].imshow(permute_image(input[col]), cmap="gray")
             axes[1, col].imshow(permute_image(masked_in[col]), cmap="gray")
             axes[2, col].imshow(permute_image(masked_out[col]), cmap="gray")
