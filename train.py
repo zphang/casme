@@ -322,7 +322,7 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
             mistaken_on_masked = target.ne(max_indexes_m)
             nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
 
-            mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
+            mask_mean = F.avg_pool2d(mask, 256, stride=1).squeeze()
             if args.add_prob_layers:
                 # adjust to minimize deviation from p
                 mask_mean = (mask_mean - use_p)
@@ -334,6 +334,8 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
                     raise KeyError(args.prob_loss_func)
 
             # apply regularization loss only on non-trivially confused images
+            print(nontrivially_confused.shape)
+            print(mask_mean.shape)
             regularization = -args.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
 
             # main loss for casme
