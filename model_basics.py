@@ -65,7 +65,7 @@ def get_masks_and_check_predictions(input, target, model):
 def get_mask(input, model, p=None, get_output=False):
     with torch.no_grad():
         input = input.to(device)
-        classifier_output, layers = model['classifier'](input)
+        classifier_output, layers = model['classifier'](input, return_intermediate=True)
         decoder_output = model['decoder'](layers, p=p)
         if get_output:
             return decoder_output, classifier_output
