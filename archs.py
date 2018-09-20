@@ -204,4 +204,4 @@ class Decoder(nn.Module):
 
 
 def decoder(**kwargs):
-    return Decoder([256, 512, 1024, 2048], **kwargs)
+    return Decoder([16, 64, 128, 256, 512], **kwargs)

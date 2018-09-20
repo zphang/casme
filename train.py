@@ -7,13 +7,42 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim
-import torch.utils.data
 import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 
 import archs
 from stats import AverageMeter, StatisticsContainer
 from train_utils import accuracy, adjust_learning_rate, save_checkpoint, set_args
+
+from utilities.containers import DataSplits
+import utilities.logger as logging_module
+import patch_classification.patch_model.torch.patch_data_torch as patch_data
+import patch_classification.patch_model.torch.models_torch as models
+from torch.utils.data import DataLoader
+DATA_CONFIG = {
+    "num_parts": {
+        "training": {'malignant': 30, 'benign': 30, 'unknown': 100, 'outside': 100},
+        "validation": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
+        "test": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
+    },
+    "samples_per_epoch": {
+        "training": {'malignant': 100, 'benign': 200, 'unknown': 51700, 'outside': 48000},
+        # "training": {'malignant': 100 , 'benign': 200, 'unknown': 100, 'outside': 100},
+        "validation": {'malignant': -1, 'benign': -1, 'unknown': -1, 'outside': -1},
+        "test": {'malignant': -1, 'benign': -1, 'unknown': -1, 'outside': -1},
+    },
+    "parts_to_load": {
+        "training": {'malignant': 1, 'benign': 1, 'unknown': 6, 'outside': 5},
+        # "training": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
+        "validation": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
+        "test": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
+    },
+    "paths": {
+        "training": "/gpfs/data/geraslab/Nan/data/segmentation_patches/patches_by_class_0907/training/",
+        "validation": "/gpfs/data/geraslab/Nan/data/segmentation_patches/patches_by_class_0907/validation/",
+        "test": "/gpfs/data/geraslab/Nan/data/segmentation_patches/patches_by_class_0907/test/",
+    },
+    "label_list": ["malignant", "benign", "unknown", "outside"],
+}
 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
@@ -37,9 +66,9 @@ parser.add_argument('--batch-size', default=128, type=int,
                     help='mini-batch size (default: 128)')
 parser.add_argument('--pot', default=0.2, type=float,
                     help='percent of training set seen in each epoch')
-parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
+parser.add_argument('--lr', '--learning-rate', default=0.00001, type=float,
                     help='initial learning rate for classifier')
-parser.add_argument('--lr-casme', '--learning-rate-casme', default=0.001, type=float,
+parser.add_argument('--lr-casme', '--learning-rate-casme', default=0.00001, type=float,
                     help='initial learning rate for casme')
 parser.add_argument('--lrde', default=20, type=int,
                     help='how often is the learning rate decayed')
@@ -79,58 +108,60 @@ set_args(args)
 F_k = {}
 
 
+MODEL_PARAMETERS = {
+    "number_of_classes": 3,
+    "num_filters": 16,
+    "input_channels": 1,
+    "first_layer_kernel_size": 7,
+    "first_layer_conv_stride": 2,
+    "first_pool_size": 3,
+    "first_pool_stride": 2,
+    "blocks_per_layer_list": [3, 4, 6, 3],
+    "block_strides_list": [1, 2, 2, 2],
+    "block_fn": "bottleneck",
+}
+
+
 def main():
     global args
 
     # create models and optimizers
     print("=> creating models...")
-    classifier = archs.resnet50shared(pretrained=True).to(device)
+    classifier = models.PatchResNetV2(
+        parameters=MODEL_PARAMETERS,
+    ).to(device)
+    state_dict = torch.load(
+        "/gpfs/data/geraslab/zphang/working/09.18.patch/FirstRun_1537315201.9966803/epoch_600/model.p")
+    classifier.load_state_dict(state_dict["model"])
     decoder = archs.decoder(
         final_upsample_mode=args.upsample,
         add_prob_layers=args.add_prob_layers,
     ).to(device)
 
     optimizer = {
-        "classifier": torch.optim.SGD(
+        "classifier": torch.optim.Adam(
             classifier.parameters(), args.lr,
-            momentum=args.momentum, weight_decay=args.weight_decay,
+            # weight_decay=args.weight_decay,
         ),
         "decoder": torch.optim.Adam(
             decoder.parameters(), args.lr_casme,
             weight_decay=args.weight_decay,
         ),
     }
+    logger = logging_module.PrintLogger()
 
     cudnn.benchmark = True
 
     # data loading code
-    traindir = os.path.join(args.data, 'train')
-    valdir = os.path.join(args.data, 'val')
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-
-    train_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(
-            traindir,
-            transforms.Compose([
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize,
-            ])),
-        batch_size=args.batch_size, shuffle=True, num_workers=args.workers,
-        pin_memory=False, sampler=None,
+    datasets = DataSplits(
+        train=patch_data.PickleDataset("training", data_config=DATA_CONFIG, logger=logger),
+        val=patch_data.PickleDataset("validation", data_config=DATA_CONFIG, logger=logger),
+        test=None,
     )
-
-    val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=args.batch_size, shuffle=False, num_workers=args.workers,
-        pin_memory=False,
+    dataloaders = DataSplits(
+        train=DataLoader(datasets.train, args.batch_size),
+        val=DataLoader(datasets.val, args.batch_size),
+        test=None,
     )
 
     # training loop
@@ -140,11 +171,11 @@ def main():
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
-        tr_s = train_or_eval(train_loader, classifier, decoder,
+        tr_s = train_or_eval(dataloaders.train, classifier, decoder,
                              train=True, optimizer=optimizer, epoch=epoch)
 
         # evaluate on validation set
-        val_s = train_or_eval(val_loader, classifier, decoder)
+        val_s = train_or_eval(dataloaders.val, classifier, decoder)
 
         # save checkpoint
         save_checkpoint({
