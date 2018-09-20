@@ -150,7 +150,7 @@ class Decoder(nn.Module):
         self.conv1x1_3 = self._make_conv1x1_upsampled(in_planes[2] + p_dim, 64, 4)
         self.conv1x1_4 = self._make_conv1x1_upsampled(in_planes[3] + p_dim, 64, 8)
         self.final = nn.Sequential(
-            nn.Conv2d(64 + 4*64 + p_dim, 1, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.Conv2d(16 + 4*64 + p_dim, 1, kernel_size=3, stride=1, padding=1, bias=True),
             nn.Sigmoid(),
             nn.Upsample(scale_factor=4, mode=final_upsample_mode)
         )
@@ -183,11 +183,12 @@ class Decoder(nn.Module):
             l = self.append_p(l, use_p)
         else:
             assert use_p is None
-
+        """
         for layer in l:
             print(layer.shape)
             print(self.conv1x1_1)
             print("===")
+        """
 
         k = [
             l[0],
@@ -209,4 +210,4 @@ class Decoder(nn.Module):
 
 
 def decoder(**kwargs):
-    return Decoder([16, 64, 128, 256, 512], **kwargs)
+    return Decoder([64, 128, 256, 512], **kwargs)
