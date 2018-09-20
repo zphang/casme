@@ -48,4 +48,4 @@ def permute_image(image_tensor, mul255 = False):
             image *= 255
             image = image.byte()
 
-        return image.numpy()
+        return image.squeeze(2).numpy()
