@@ -182,6 +182,7 @@ class Decoder(nn.Module):
         if self.add_prob_layers:
             l = self.append_p(l, p)
         else:
+            print(p)
             assert p is None
 
         k = [
