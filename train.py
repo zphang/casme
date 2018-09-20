@@ -46,8 +46,6 @@ DATA_CONFIG = {
 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data',
-                    help='path to dataset')
 parser.add_argument('--casms-path', default='',
                     help='path to models that generate masks')
 parser.add_argument('--log-path', default='',
