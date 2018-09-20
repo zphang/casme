@@ -131,7 +131,6 @@ def main():
     state_dict = torch.load(
         "/gpfs/data/geraslab/zphang/working/09.18.patch/FirstRun_1537315201.9966803/epoch_600/model.p")
     classifier.load_state_dict(state_dict["model"])
-    print(args.add_prob_layers)
     decoder = archs.decoder(
         final_upsample_mode=args.upsample,
         add_prob_layers=args.add_prob_layers,
@@ -235,9 +234,9 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
         input_, target = input_.to(device), target.to(device)
 
         if args.add_prob_layers:
-            p = torch.Tensor(input_.shape[0]).uniform_(0.25, 0.75).to(device)
+            use_p = torch.Tensor(input_.shape[0]).uniform_(0.25, 0.75).to(device)
         else:
-            p = None
+            use_p = None
 
         # compute classifier prediction on the original images and get inner layers
         with torch.set_grad_enabled(train and (not args.fixed_classifier)):
@@ -273,7 +272,7 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
 
         with torch.set_grad_enabled(train):
             # compute mask and masked input
-            mask = decoder(layers, p=p)
+            mask = decoder(layers, use_p=use_p)
             input_m = input_*(1-mask)
 
             # update statistics
@@ -319,7 +318,7 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
             mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
             if args.add_prob_layers:
                 # adjust to minimize deviation from p
-                mask_mean = (mask_mean - p)
+                mask_mean = (mask_mean - use_p)
                 if args.prob_loss_func == "l1":
                     mask_mean = mask_mean.abs()
                 elif args.prob_loss_func == "l2":

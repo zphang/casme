@@ -178,12 +178,11 @@ class Decoder(nn.Module):
                 nn.ReLU(inplace=True)
             )
     
-    def forward(self, l, p):
+    def forward(self, l, use_p):
         if self.add_prob_layers:
-            l = self.append_p(l, p)
+            l = self.append_p(l, use_p)
         else:
-            print(p)
-            assert p is None
+            assert use_p is None
 
         k = [
             l[0],
