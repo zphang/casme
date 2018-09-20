@@ -184,6 +184,11 @@ class Decoder(nn.Module):
         else:
             assert use_p is None
 
+        for layer in l:
+            print(layer.shape)
+            print(self.conv1x1_1)
+            print("===")
+
         k = [
             l[0],
             self.conv1x1_1(l[1]),
