@@ -164,15 +164,18 @@ def main():
 
     # training loop
     for epoch in range(args.epochs):
+
         epoch_start_time = time.time()
 
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
+        datasets.train.new_epoch()
         tr_s = train_or_eval(dataloaders.train, classifier, decoder,
                              train=True, optimizer=optimizer, epoch=epoch)
 
         # evaluate on validation set
+        datasets.val.new_epoch()
         val_s = train_or_eval(dataloaders.val, classifier, decoder)
 
         # save checkpoint
