@@ -299,7 +299,7 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
                 confuser.load_state_dict(F_k[index])
                 confuser.eval()
 
-                output_m, _ = confuser(input_m)
+                output_m = confuser(input_m)
                 update_classifier = False
 
             classifier_loss_m = classifier_criterion(output_m, target)
