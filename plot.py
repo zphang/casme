@@ -51,7 +51,7 @@ DATA_CONFIG = {
     "samples_per_epoch": {
         "training": {'malignant': 100, 'benign': 200, 'unknown': 51700, 'outside': 48000},
         # "training": {'malignant': 100 , 'benign': 200, 'unknown': 100, 'outside': 100},
-        "validation": {'malignant': 100, 'benign': 100, 'unknown': 100, 'outside': 100},
+        "validation": {'malignant': 10, 'benign': 10, 'unknown': 10, 'outside': 10},
         # "validation": {'malignant': -1, 'benign': -1, 'unknown': -1, 'outside': -1},
         "test": {'malignant': -1, 'benign': -1, 'unknown': -1, 'outside': -1},
     },
