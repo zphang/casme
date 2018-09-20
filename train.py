@@ -287,7 +287,7 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
 
             # randomly select classifier to be evaluated on masked image and compute output
             if (not train) or args.fixed_classifier or (random.random() > args.hp):
-                output_m, _ = classifier(input_m)
+                output_m = classifier(input_m)
                 update_classifier = not args.fixed_classifier
             else:
                 try:
