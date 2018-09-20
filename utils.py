@@ -6,8 +6,8 @@ import torchvision.transforms as transforms
 from model_basics import binarize_mask, get_mask
 
 
-def get_binarized_mask(input, model, p=None):
-    mask = get_mask(input, model, p=p)
+def get_binarized_mask(input, model, use_p=None):
+    mask = get_mask(input, model, use_p=use_p)
     return binarize_mask(mask.clone()), mask.cpu()
 
 
