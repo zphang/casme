@@ -67,8 +67,8 @@ parser.add_argument('--reproduce', default='',
                     help='reproducing paper results (F|L|FL|L100|L1000)')
 
 parser.add_argument('--add-prob-layers', action='store_true')
-parser.add_argument('--prob-sample-low', default=0.25)
-parser.add_argument('--prob-sample-high', default=0.25)
+parser.add_argument('--prob-sample-low', default=0.25, type=float)
+parser.add_argument('--prob-sample-high', default=0.75, type=float)
 parser.add_argument('--prob-loss-func', default="l1")
 
 args = parser.parse_args()
@@ -202,9 +202,11 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
         input_, target = input_.to(device), target.to(device)
 
         if args.add_prob_layers:
-            p = torch.Tensor(input_.shape[0]).uniform_(0.25, 0.75).to(device)
+            use_p = torch.Tensor(input_.shape[0])\
+                .uniform_(args.prob_sample_low, args.prob_sample_high)\
+                .to(device)
         else:
-            p = None
+            use_p = None
 
         # compute classifier prediction on the original images and get inner layers
         with torch.set_grad_enabled(train and (not args.fixed_classifier)):
@@ -240,7 +242,7 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
 
         with torch.set_grad_enabled(train):
             # compute mask and masked input
-            mask = decoder(layers, p=p)
+            mask = decoder(layers, use_p=use_p)
             input_m = input_*(1-mask)
 
             # update statistics

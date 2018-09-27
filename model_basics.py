@@ -48,11 +48,11 @@ def get_masks_and_check_predictions(input, target, model):
         return mask.squeeze().cpu().numpy(), rectangular.squeeze().cpu().numpy(), isCorrect.cpu().numpy() 
 
 
-def get_mask(input, model, p=None, get_output=False):
+def get_mask(input, model, use_p=None, get_output=False):
     with torch.no_grad():
         input = input.to(device)
         classifier_output, layers = model['classifier'](input)
-        decoder_output = model['decoder'](layers, p=p)
+        decoder_output = model['decoder'](layers, use_p=use_p)
         if get_output:
             return decoder_output, classifier_output
         else:
