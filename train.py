@@ -13,7 +13,7 @@ import archs
 from stats import AverageMeter, StatisticsContainer
 from train_utils import accuracy, adjust_learning_rate, save_checkpoint, set_args
 
-from utilities.containers import DataSplits
+from utilities.containers import PhaseSplits
 import utilities.logger as logging_module
 import patch_classification.patch_model.torch.patch_data_torch as patch_data
 import patch_classification.patch_model.torch.models_torch as models
@@ -151,12 +151,12 @@ def main():
     cudnn.benchmark = True
 
     # data loading code
-    datasets = DataSplits(
+    datasets = PhaseSplits(
         train=patch_data.PickleDataset("training", data_config=DATA_CONFIG, logger=logger),
         val=patch_data.PickleDataset("validation", data_config=DATA_CONFIG, logger=logger),
         test=None,
     )
-    dataloaders = DataSplits(
+    dataloaders = PhaseSplits(
         train=DataLoader(datasets.train, args.batch_size),
         val=DataLoader(datasets.val, args.batch_size),
         test=None,
@@ -292,15 +292,15 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
                 update_classifier = not args.fixed_classifier
             else:
                 try:
-                    confuser
+                    confusee
                 except NameError:
                     import copy
-                    confuser = copy.deepcopy(classifier)
+                    confusee = copy.deepcopy(classifier)
                 index = random.randint(0, len(F_k) - 1)
-                confuser.load_state_dict(F_k[index])
-                confuser.eval()
+                confusee.load_state_dict(F_k[index])
+                confusee.eval()
 
-                output_m = confuser(input_m)
+                output_m = confusee(input_m)
                 update_classifier = False
 
             classifier_loss_m = classifier_criterion(output_m, target)
