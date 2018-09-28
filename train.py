@@ -288,7 +288,7 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
             mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
             if args.add_prob_layers:
                 # adjust to minimize deviation from p
-                mask_mean = (mask_mean - p)
+                mask_mean = (mask_mean - use_p)
                 if args.prob_loss_func == "l1":
                     mask_mean = mask_mean.abs()
                 elif args.prob_loss_func == "l2":
