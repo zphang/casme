@@ -74,7 +74,7 @@ def main():
         one_img = input[0]
         copies_of_img = one_img.expand(num_p, 3, 224, 224)
 
-        p = (torch.Tensor(args.percentages) / 100).to(device)
+        use_p = (torch.Tensor(args.percentages) / 100).to(device)
 
         # normalize first few images
         normalized_input = copies_of_img.clone()
@@ -82,7 +82,7 @@ def main():
             normalize(normalized_input[id])
 
         # get mask and masked images
-        binary_mask, soft_mask = get_binarized_mask(normalized_input, model, p=p)
+        binary_mask, soft_mask = get_binarized_mask(normalized_input, model, use_p=use_p)
         masked_in, masked_out, binary_mask = \
             get_masked_images(copies_of_img, binary_mask, 0.35, return_mask=True)
         inpainted = inpaint(binary_mask, masked_out)
