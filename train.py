@@ -375,17 +375,17 @@ def train_or_eval(data_loader, classifier, decoder, train=False, optimizer=None,
                   'Prec@1(M) {acc_m.avg:.3f} ({acc_m.val:.3f})\t'.format(
                       batch_time=batch_time, data_time=data_time,
                       loss=losses, acc=acc, loss_m=losses_m, acc_m=acc_m), flush=True)
-            statistics.printOut()
+            statistics.print_out()
             print()
 
     if not train:
         print(' * Prec@1 {acc.avg:.3f} Prec@1(M) {acc_m.avg:.3f} '.format(acc=acc, acc_m=acc_m))
-        statistics.printOut()
+        statistics.print_out()
 
     return {
         'acc': str(acc.avg),
         'acc_m': str(acc_m.avg),
-        **statistics.getDictionary()
+        **statistics.get_dictionary()
     }
 
 

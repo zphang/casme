@@ -1,10 +1,15 @@
 import numpy as np
+import time
 
 import torch
-import torch.nn.functional as F
 
-class AverageMeter(object):
+
+class AverageMeter:
     def __init__(self):
+        self.val = None
+        self.avg = None
+        self.sum = None
+        self.count = None
         self.reset()
 
     def reset(self):
@@ -19,8 +24,43 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-class StatisticsContainer(object):
+
+class TimeMeter:
     def __init__(self):
+        self.meter = AverageMeter()
+        self.time_mark = None
+        self.reset()
+
+    @property
+    def val(self):
+        return self.meter.val
+
+    @property
+    def avg(self):
+        return self.meter.avg
+
+    @property
+    def sum(self):
+        return self.meter.sum
+
+    @property
+    def count(self):
+        return self.meter.count
+
+    def reset(self):
+        self.time_mark = time.time()
+
+    def update(self):
+        self.meter.update(time.time() - self.time_mark)
+        self.time_mark = time.time()
+
+
+class StatisticsContainer:
+    def __init__(self):
+        self.avg = None
+        self.std = None
+        self.entropy = None
+        self.tv = None
         self.reset()
 
     def reset(self):
@@ -35,29 +75,32 @@ class StatisticsContainer(object):
 
             self.avg.update(mask.mean().item(), mask.size(0))
 
-            self.std.update(F.avg_pool2d(mask, 224, stride=1).std().item(), mask.size(0))
+            self.std.update(mask.mean(3).mean(2).std().item(), mask.size(0))
 
             flat = mask.view(-1).cpu().numpy()
-            non_zero_flat = flat[flat>0]
-            clear_flat = non_zero_flat[non_zero_flat<1]
+            non_zero_flat = flat[flat > 0]
+            clear_flat = non_zero_flat[non_zero_flat < 1]
             clear_flat_log2 = np.log2(clear_flat)
             sum_across_batch = -np.sum(clear_flat*clear_flat_log2)
             self.entropy.update(sum_across_batch/flat.size, mask.size(0))
 
-            tv = (mask[:,:,:,:-1] - mask[:,:,:,1:]).pow(2).mean() + (mask[:,:,:-1,:] - mask[:,:,1:,:]).pow(2).mean()
+            tv = (
+                (mask[:, :, :, :-1] - mask[:, :, :, 1:]).pow(2).mean()
+                + (mask[:, :, :-1, :] - mask[:, :, 1:, :]).pow(2).mean()
+            )
             self.tv.update(tv.item(), mask.size(0))
 
-    def printOut(self):
+    def print_out(self):
         print('TV (x100)   {tv_avg:.3f} ({tv_val:.3f})\t'
               'AvgMask {a.avg:.3f} ({a.val:.3f})\n'
               'EntropyMask {e.avg:.3f} ({e.val:.3f})\t'
               'StdMask {s.avg:.3f} ({s.val:.3f})'.format(
                   a=self.avg, s=self.std, e=self.entropy, tv_avg=100*self.tv.avg, tv_val=100*self.tv.val), flush=True)
 
-    def getDictionary(self): 
+    def get_dictionary(self):
         return {
             'avg_mask': str(self.avg.avg),
-            'std_mask':str(self.std.avg),
+            'std_mask': str(self.std.avg),
             'entropy': str(self.entropy.avg),
             'tv': str(self.tv.avg)
         }
