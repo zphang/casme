@@ -33,7 +33,7 @@ parser.add_argument('--epochs', default=60, type=int,
                     help='number of total epochs to run')
 parser.add_argument('--batch-size', default=128, type=int,
                     help='mini-batch size (default: 128)')
-parser.add_argument('--pot', default=0.2, type=float,
+parser.add_argument('--perc-of-training', default=0.2, type=float,
                     help='percent of training set seen in each epoch')
 parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
                     help='initial learning rate for classifier')
@@ -50,7 +50,7 @@ parser.add_argument('--upsample', default='nearest',
                     help='mode for final upsample layer in the decoder (default: nearest)')
 parser.add_argument('--fixed-classifier', action='store_true',
                     help='train classifier')
-parser.add_argument('--hp', default=0.5, type=float,
+parser.add_argument('--prob-historic', default=0.5, type=float,
                     help='probability for evaluating historic model')
 parser.add_argument('--save-freq', default=1000, type=int,
                     help='frequency of model saving to history (in batches)')
