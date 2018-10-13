@@ -142,7 +142,7 @@ def main():
         pot=args.pot,
         hp=args.hp,
         smf=args.smf,
-        zoo_size=args.zoo_size,
+        zoo_size=args.f_size,
         add_prob_layers=args.add_prob_layers,
         prob_sample_low=args.prob_sample_low,
         prob_sample_high=args.prob_sample_high,
