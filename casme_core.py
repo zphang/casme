@@ -79,9 +79,9 @@ class CASMERunner:
                     print('Test: [{0}/{1}]\t'.format(i, len(data_loader)), end='')
                 print('Time {lc.batch_time.avg:.3f} ({lc.batch_time.val:.3f})\t'
                       'Data {lc.data_time.avg:.3f} ({lc.data_time.val:.3f})\n'
-                      'Loss(C) {lc.loss.avg:.4f} ({lc.loss.val:.4f})\t'
+                      'Loss(C) {lc.losses.avg:.4f} ({lc.losses.val:.4f})\t'
                       'Prec@1(C) {lc.acc.avg:.3f} ({lc.acc.val:.3f})\n'
-                      'Loss(M) {lc.loss_m.avg:.4f} ({lc.loss_m.val:.4f})\t'
+                      'Loss(M) {lc.losses_m.avg:.4f} ({lc.losses_m.val:.4f})\t'
                       'Prec@1(M) {lc.acc_m.avg:.3f} ({lc.acc_m.val:.3f})\t'.format(lc=log_containers))
                 log_containers.statistics.print_out()
                 print()
@@ -112,8 +112,8 @@ class CASMERunner:
             classifier_loss = self.classifier_criterion(y_hat, y)
 
         # update metrics
-        # losses.update(classifier_loss.item(), x.size(0))
-        # acc.update(accuracy(y_hat.detach(), y, topk=(1,))[0].item(), x.size(0))
+        log_containers.losses.update(classifier_loss.item(), x.size(0))
+        log_containers.acc.update(accuracy(y_hat.detach(), y, topk=(1,))[0].item(), x.size(0))
 
         # update classifier - compute gradient and do SGD step for clean image, save classifier
         if is_train and (not self.fixed_classifier):
