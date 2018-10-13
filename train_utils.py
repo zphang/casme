@@ -19,10 +19,10 @@ def accuracy(output, target, topk=(1,)):
         return res        
 
 
-def adjust_learning_rate(optimizer, epoch, args):
-    for param_group in optimizer['classifier'].param_groups:
+def adjust_learning_rate(classifier_optimizer, masker_optimizer, epoch, args):
+    for param_group in classifier_optimizer.param_groups:
         param_group['lr'] = args.lr * (0.1 ** (epoch // args.lrde))
-    for param_group in optimizer['decoder'].param_groups:
+    for param_group in masker_optimizer.param_groups:
         param_group['lr'] = args.lr_casme * (0.1 ** (epoch // args.lrde))
 
 
@@ -37,7 +37,7 @@ def set_args(args):
     os.makedirs(args.log_path, exist_ok=True)
 
     args.casms_path = os.path.join(args.casms_path, args.name)
-    args.log_path = os.path.join(args.log_path, args.name) + '.log'
+    args.log_path = os.path.join(args.log_path, args.name + '.log')
 
     if args.reproduce != '':
         set_reproduction(args)
@@ -50,7 +50,8 @@ def set_args(args):
 
     with open(args.log_path, 'a') as f:
         f.write(string_args + '\n')
-        f.write('epoch time acc_tr acc_val acc_m_tr acc_m_val avg_mask_tr avg_mask_val std_mask_tr std_mask_val ent_mask_tr ent_mask_val tv_tr tv_val\n')
+        f.write('epoch time acc_tr acc_val acc_m_tr acc_m_val avg_mask_tr avg_mask_val '
+                'std_mask_tr std_mask_val ent_mask_tr ent_mask_val tv_tr tv_val\n')
 
 
 def set_reproduction(args):

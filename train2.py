@@ -2,6 +2,7 @@ import argparse
 import os
 import time
 
+import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
@@ -51,7 +52,7 @@ parser.add_argument('--fixed-classifier', action='store_true',
                     help='train classifier')
 parser.add_argument('--hp', default=0.5, type=float,
                     help='probability for evaluating historic model')
-parser.add_argument('--smf', default=1000, type=int,
+parser.add_argument('--save-freq', default=1000, type=int,
                     help='frequency of model saving to history (in batches)')
 parser.add_argument('--f-size', default=30, type=int,
                     help='size of F set - maximal number of previous classifier iterations stored')
@@ -82,21 +83,18 @@ def main():
     # create models and optimizers
     print("=> creating models...")
     classifier = archs.resnet50shared(pretrained=True).to(device)
-    decoder = archs.decoder(
+    masker = archs.decoder(
         final_upsample_mode=args.upsample,
         add_prob_layers=args.add_prob_layers,
     ).to(device)
-
-    optimizer = {
-        "classifier": torch.optim.SGD(
-            classifier.parameters(), args.lr,
-            momentum=args.momentum, weight_decay=args.weight_decay,
-        ),
-        "decoder": torch.optim.Adam(
-            decoder.parameters(), args.lr_casme,
-            weight_decay=args.weight_decay,
-        ),
-    }
+    classifier_optimizer = torch.optim.SGD(
+        classifier.parameters(), args.lr,
+        momentum=args.momentum, weight_decay=args.weight_decay,
+    )
+    masker_optimizer = torch.optim.Adam(
+        masker.parameters(), args.lr_casme,
+        weight_decay=args.weight_decay,
+    )
 
     cudnn.benchmark = True
 
@@ -132,31 +130,33 @@ def main():
 
     casme_runner = casme_core.CASMERunner(
         classifier=classifier,
-        decoder=decoder,
-        lr=args.lr,
-        lr_casme=args.lr_casme,
-        momentum=args.momentum,
-        weight_decay=args.weight_decay,
-        lambda_r=args.lambda_r,
+        masker=masker,
+        classifier_optimizer=classifier_optimizer,
+        masker_optimizer=masker_optimizer,
+        classifier_criterion=nn.CrossEntropyLoss(),
+        masker_criterion=casme_core.MaskerCriterion(
+            lambda_r=args.lambda_r,
+            add_prob_layers=args.add_prob_layers,
+            prob_loss_func=args.prob_loss_func,
+            adversarial=args.adversarial,
+        ),
         fixed_classifier=args.fixed_classifier,
-        pot=args.pot,
-        hp=args.hp,
-        smf=args.smf,
+        perc_of_training=args.perc_of_training,
+        prob_historic=args.prob_historic,
+        save_freq=args.save_freq,
         zoo_size=args.f_size,
         add_prob_layers=args.add_prob_layers,
         prob_sample_low=args.prob_sample_low,
         prob_sample_high=args.prob_sample_high,
-        prob_loss_func=args.prob_loss_func,
         print_freq=args.print_freq,
         device=device,
-        adversarial=args.adversarial,
     )
 
     # training loop
     for epoch in range(args.epochs):
         epoch_start_time = time.time()
 
-        adjust_learning_rate(optimizer, epoch, args)
+        adjust_learning_rate(classifier_optimizer, masker_optimizer, epoch, args)
 
         # train for one epoch
         tr_s = casme_runner.train_or_eval(
@@ -176,9 +176,9 @@ def main():
         save_checkpoint({
             'epoch': epoch + 1,
             'state_dict_classifier': classifier.state_dict(),
-            'state_dict_decoder': decoder.state_dict(),
-            'optimizer_classifier': optimizer['classifier'].state_dict(),
-            'optimizer_decoder': optimizer['decoder'].state_dict(),
+            'state_dict_masker': masker.state_dict(),
+            'optimizer_classifier': classifier_optimizer.state_dict(),
+            'optimizer_masker': masker_optimizer.state_dict(),
             'args': args,
         }, args)
 
