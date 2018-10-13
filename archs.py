@@ -140,11 +140,11 @@ def resnet50shared(pretrained=False, **kwargs):
     return model
 
 
-class Decoder(nn.Module):
+class Masker(nn.Module):
 
     def __init__(self, in_channels, out_channel,
                  final_upsample_mode='nearest', add_prob_layers=False):
-        super(Decoder, self).__init__()
+        super().__init__()
         self.add_prob_layers = add_prob_layers
 
         p_dim = 1 if self.add_prob_layers else 0
@@ -153,7 +153,7 @@ class Decoder(nn.Module):
         self.conv1x1_3 = self._make_conv1x1_upsampled(in_channels[3] + p_dim, out_channel, 4)
         self.conv1x1_4 = self._make_conv1x1_upsampled(in_channels[4] + p_dim, out_channel, 8)
         self.final = nn.Sequential(
-            nn.Conv2d(in_channels[0] * 4 * out_channel + p_dim, 1,
+            nn.Conv2d(in_channels[0] + 4 * out_channel + p_dim, 1,
                       kernel_size=3, stride=1, padding=1, bias=True),
             nn.Sigmoid(),
             nn.Upsample(scale_factor=4, mode=final_upsample_mode)
@@ -206,11 +206,3 @@ class Decoder(nn.Module):
                 .permute(3, 0, 1, 2)
             new_l.append(torch.cat([layer, p_slice], dim=1))
         return new_l
-
-"""
-To delete:
-
-def decoder(**kwargs):
-    #return Decoder([64, 128, 256, 512], **kwargs)
-    return Decoder([256, 512, 1024, 2048], **kwargs)
-"""

@@ -83,7 +83,9 @@ def main():
     # create models and optimizers
     print("=> creating models...")
     classifier = archs.resnet50shared(pretrained=True).to(device)
-    masker = archs.decoder(
+    masker = archs.Masker(
+        in_channels=[64, 256, 512, 1024, 2048],
+        out_channel=64,
         final_upsample_mode=args.upsample,
         add_prob_layers=args.add_prob_layers,
     ).to(device)
