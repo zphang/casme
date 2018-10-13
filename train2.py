@@ -9,8 +9,8 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 import archs
+import casme_core
 from train_utils import adjust_learning_rate, save_checkpoint, set_args
-from casme import casme_core
 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
