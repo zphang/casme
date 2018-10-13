@@ -186,12 +186,6 @@ class Decoder(nn.Module):
             l = self.append_p(l, use_p)
         else:
             assert use_p is None
-        """
-        for layer in l:
-            print(layer.shape)
-            print(self.conv1x1_1)
-            print("===")
-        """
 
         k = [
             l[0],
@@ -213,4 +207,5 @@ class Decoder(nn.Module):
 
 
 def decoder(**kwargs):
-    return Decoder([64, 128, 256, 512], **kwargs)
+    #return Decoder([64, 128, 256, 512], **kwargs)
+    return Decoder([256, 512, 1024, 2048], **kwargs)
