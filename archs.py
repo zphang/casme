@@ -142,18 +142,19 @@ def resnet50shared(pretrained=False, **kwargs):
 
 class Decoder(nn.Module):
 
-    def __init__(self, in_planes, final_upsample_mode='nearest', add_prob_layers=False):
+    def __init__(self, in_channels, out_channel,
+                 final_upsample_mode='nearest', add_prob_layers=False):
         super(Decoder, self).__init__()
         self.add_prob_layers = add_prob_layers
 
         p_dim = 1 if self.add_prob_layers else 0
-
-        self.conv1x1_1 = self._make_conv1x1_upsampled(in_planes[0] + p_dim, 64)
-        self.conv1x1_2 = self._make_conv1x1_upsampled(in_planes[1] + p_dim, 64, 2)
-        self.conv1x1_3 = self._make_conv1x1_upsampled(in_planes[2] + p_dim, 64, 4)
-        self.conv1x1_4 = self._make_conv1x1_upsampled(in_planes[3] + p_dim, 64, 8)
+        self.conv1x1_1 = self._make_conv1x1_upsampled(in_channels[1] + p_dim, out_channel)
+        self.conv1x1_2 = self._make_conv1x1_upsampled(in_channels[2] + p_dim, out_channel, 2)
+        self.conv1x1_3 = self._make_conv1x1_upsampled(in_channels[3] + p_dim, out_channel, 4)
+        self.conv1x1_4 = self._make_conv1x1_upsampled(in_channels[4] + p_dim, out_channel, 8)
         self.final = nn.Sequential(
-            nn.Conv2d(64 + 4*64 + p_dim, 1, kernel_size=3, stride=1, padding=1, bias=True),
+            nn.Conv2d(in_channels[0] * 4 * out_channel + p_dim, 1,
+                      kernel_size=3, stride=1, padding=1, bias=True),
             nn.Sigmoid(),
             nn.Upsample(scale_factor=4, mode=final_upsample_mode)
         )
@@ -166,7 +167,8 @@ class Decoder(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def _make_conv1x1_upsampled(self, inplanes, outplanes, scale_factor=None):
+    @classmethod
+    def _make_conv1x1_upsampled(cls, inplanes, outplanes, scale_factor=None):
         if scale_factor:
             return nn.Sequential(
                 nn.Conv2d(inplanes, outplanes, kernel_size=1, stride=1, padding=0, bias=False),
@@ -205,7 +207,10 @@ class Decoder(nn.Module):
             new_l.append(torch.cat([layer, p_slice], dim=1))
         return new_l
 
+"""
+To delete:
 
 def decoder(**kwargs):
     #return Decoder([64, 128, 256, 512], **kwargs)
     return Decoder([256, 512, 1024, 2048], **kwargs)
+"""

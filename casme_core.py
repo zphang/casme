@@ -54,6 +54,17 @@ class MaskerCriterion(nn.Module):
 
         # apply regularization loss only on non-trivially confused images
         regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
+        """
+            nontrivially_confused = 
+                    1 if relevant, else 0
+            nontrivially_confused - mask_mean = 
+                    if relevant: 1-mask_mean (small if large mask)
+                    else: something less than 0
+            F.relu(...) = 
+                    if relevant: 1-mask_mean (small if large mask)
+            - (...) = 
+                    if relevant: mask_mean (+const)
+        """
 
         # main loss for casme
         if self.adversarial:
