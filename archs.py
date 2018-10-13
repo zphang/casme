@@ -106,7 +106,7 @@ class ResNet(nn.Module):
 
 
 class ResNetShared(ResNet):
-    def forward(self, x):
+    def forward(self, x, return_intermediate=False):
         l = []
         x = self.conv1(x)
         x = self.bn1(x)
@@ -127,7 +127,10 @@ class ResNetShared(ResNet):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
-        return x, l
+        if return_intermediate:
+            return x, l
+        else:
+            return x
 
 
 def resnet50shared(pretrained=False, **kwargs):
