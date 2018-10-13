@@ -58,7 +58,7 @@ class CASMERunner:
                 weight_decay=self.weight_decay,
             ),
         }
-        self.classifier_criterion = nn.CrossEntropyLoss(device)
+        self.classifier_criterion = nn.CrossEntropyLoss().to(device)
         self.classifier_zoo = {}
 
     def train_or_eval(self, data_loader, is_train=False, epoch=None):
