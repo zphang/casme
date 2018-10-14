@@ -220,7 +220,7 @@ class CASMERunner:
         self.prob_sample_high = prob_sample_high
         self.print_freq = print_freq
         self.device = device
-        self.logger = logger
+        self.logger = logger if logger is not None else PrintLogger()
         self.apply_mask_func = apply_mask_func
 
         self.classifier_zoo = {}
