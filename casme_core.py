@@ -148,17 +148,6 @@ class MaskerPriorCriterion(nn.Module):
 
         # apply regularization loss only on non-trivially confused images
         regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
-        """
-            nontrivially_confused = 
-                    1 if relevant, else 0
-            nontrivially_confused - mask_mean = 
-                    if relevant: 1-mask_mean (small if large mask)
-                    else: something less than 0
-            F.relu(...) = 
-                    if relevant: 1-mask_mean (small if large mask)
-            - (...) = 
-                    if relevant: mask_mean (+const)
-        """
 
         # main loss for casme
         if self.config["kl"] == "forward":
@@ -246,7 +235,7 @@ class CASMERunner:
                     self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
                         epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), end='')
                 else:
-                    self.logger.log('Test: [{0}/{1}]\t'.format(i, len(data_loader)), end='')
+                    self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), end='')
                 self.logger.log('Time {lc.batch_time.avg:.3f} ({lc.batch_time.val:.3f})\t'
                                 'Data {lc.data_time.avg:.3f} ({lc.data_time.val:.3f})\n'
                                 'Loss(C) {lc.losses.avg:.4f} ({lc.losses.val:.4f})\t'
