@@ -158,10 +158,10 @@ class MaskerPriorCriterion(nn.Module):
         # main loss for casme
         if self.config["kl"] == "forward":
             log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
-            negative_kl = (log_prob * self.prior).sum(dim=1)
+            negative_kl = (self.prior * log_prob).sum(dim=1)
         elif self.config["kl"] == "backward":
             log_prior = torch.log(self.prior)
-            negative_kl = (log_prior * y_hat_from_masked_x_prob).sum(dim=1)
+            negative_kl = (y_hat_from_masked_x_prob * (log_prior - F.log_softmax(y_hat))).sum(dim=1)
         else:
             raise KeyError(self.config["kl"])
 

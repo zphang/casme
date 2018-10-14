@@ -57,8 +57,8 @@ def set_args(args):
 def set_reproduction(args):
     if args.reproduce == 'F':
         args.fixed_classifier = True
-        args.hp = 0.0
-        args.smf = 10000000
+        args.prob_historic = 0.0
+        args.save_freq = 10000000
         if args.adversarial:
             args.lambda_r = 9
         else:
@@ -66,8 +66,8 @@ def set_reproduction(args):
 
     if args.reproduce == 'L':
         args.fixed_classifier = False
-        args.hp = 0.0
-        args.smf = 10000000
+        args.prob_historic = 0.0
+        args.save_freq = 10000000
         if args.adversarial:
             args.lambda_r = 18
         else:
@@ -75,8 +75,8 @@ def set_reproduction(args):
 
     if args.reproduce == 'FL':
         args.fixed_classifier = False
-        args.hp = 0.5
-        args.smf = 10000000
+        args.prob_historic = 0.5
+        args.save_freq = 10000000
         if args.adversarial:
             args.lambda_r = 11
         else:
@@ -84,8 +84,8 @@ def set_reproduction(args):
 
     if args.reproduce == 'L100':
         args.fixed_classifier = False
-        args.hp = 0.5
-        args.smf = 100
+        args.prob_historic = 0.5
+        args.save_freq = 100
         if args.adversarial:
             args.lambda_r = 17
         else:
@@ -93,8 +93,8 @@ def set_reproduction(args):
 
     if args.reproduce == 'L1000':
         args.fixed_classifier = False
-        args.hp = 0.5
-        args.smf = 1000
+        args.prob_historic = 0.5
+        args.save_freq = 1000
         if args.adversarial:
             args.lambda_r = 17
         else:
