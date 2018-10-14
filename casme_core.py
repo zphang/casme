@@ -161,7 +161,11 @@ class MaskerPriorCriterion(nn.Module):
             negative_kl = (self.prior * log_prob).sum(dim=1)
         elif self.config["kl"] == "backward":
             log_prior = torch.log(self.prior)
+            """
             negative_kl = (y_hat_from_masked_x_prob
+                           * (log_prior - F.log_softmax(y_hat_from_masked_x))).sum(dim=1)
+            """
+            negative_kl = - (y_hat_from_masked_x_prob
                            * (log_prior - F.log_softmax(y_hat_from_masked_x))).sum(dim=1)
         else:
             raise KeyError(self.config["kl"])
