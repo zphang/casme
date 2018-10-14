@@ -19,8 +19,10 @@ class LogContainers:
         self.losses_m = stats.AverageMeter()
         self.acc_m = stats.AverageMeter()
         self.statistics = stats.StatisticsContainer()
-        self.masker_loss = stats.AverageMeter()
+        self.masker_total_loss = stats.AverageMeter()
 
+        self.masker_loss = stats.AverageMeter()
+        self.masker_reg = stats.AverageMeter()
         self.correct_on_clean = stats.AverageMeter()
         self.mistaken_on_masked = stats.AverageMeter()
         self.nontrivially_confused = stats.AverageMeter()
@@ -88,6 +90,8 @@ class MaskerCriterion(nn.Module):
             "correct_on_clean": correct_on_clean.float().mean(),
             "mistaken_on_masked": mistaken_on_masked.float().mean(),
             "nontrivially_confused": nontrivially_confused.float().mean(),
+            "loss": loss,
+            "regularization": regularization,
         }
         return masker_loss, metadata
 
@@ -170,6 +174,8 @@ class MaskerPriorCriterion(nn.Module):
             "correct_on_clean": correct_on_clean.float().mean(),
             "mistaken_on_masked": mistaken_on_masked.float().mean(),
             "nontrivially_confused": nontrivially_confused.float().mean(),
+            "loss": loss,
+            "regularization": regularization,
         }
         return masker_loss, metadata
 
@@ -232,7 +238,9 @@ class CASMERunner:
                       'Prec@1(C) {lc.acc.avg:.3f} ({lc.acc.val:.3f})\n'
                       'Loss(M) {lc.losses_m.avg:.4f} ({lc.losses_m.val:.4f})\t'
                       'Prec@1(M) {lc.acc_m.avg:.3f} ({lc.acc_m.val:.3f})\n'
-                      'NLoss(M) {lc.masker_loss.avg:.4f} ({lc.masker_loss.val:.4f})\n'
+                      'MTLoss(M) {lc.masker_total_loss.avg:.4f} ({lc.masker_total_loss.val:.4f})\t'
+                      'MLoss(M) {lc.masker_loss.avg:.4f} ({lc.masker_loss.val:.4f})\t'
+                      'MReg(M) {lc.masker_reg.avg:.4f} ({lc.masker_reg.val:.4f})\n'
                       'CoC {lc.correct_on_clean.avg:.3f} ({lc.correct_on_clean.val:.3f})\t'
                       'MoM {lc.mistaken_on_masked.avg:.3f} ({lc.mistaken_on_masked.val:.3f})\t'
                       'NC {lc.nontrivially_confused.avg:.3f} ({lc.nontrivially_confused.val:.3f})\t'
@@ -327,17 +335,19 @@ class CASMERunner:
                 classifier_loss_from_masked_x.backward(retain_graph=True)
                 self.classifier_optimizer.step()
 
-            masker_loss, masker_loss_metadata = self.masker_criterion(
+            masker_total_loss, masker_loss_metadata = self.masker_criterion(
                 mask=mask, y_hat=y_hat, y_hat_from_masked_x=y_hat_from_masked_x, y=y,
                 classifier_loss_from_masked_x=classifier_loss_from_masked_x, use_p=use_p,
             )
 
             # update casme - compute gradient, do SGD step
             self.masker_optimizer.zero_grad()
-            masker_loss.backward()
+            masker_total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.masker.parameters(), 10)
             self.masker_optimizer.step()
-            log_containers.masker_loss.update(masker_loss.item(), x.size(0))
+            log_containers.masker_total_loss.update(masker_total_loss.item(), x.size(0))
+            log_containers.masker_loss.update(masker_loss_metadata["masker_loss"].item(), x.size(0))
+            log_containers.masker_reg.update(masker_loss_metadata["masker_reg"].item(), x.size(0))
             log_containers.correct_on_clean.update(masker_loss_metadata["correct_on_clean"].item(), x.size(0))
             log_containers.mistaken_on_masked.update(masker_loss_metadata["mistaken_on_masked"].item(), x.size(0))
             log_containers.nontrivially_confused.update(masker_loss_metadata["nontrivially_confused"].item(), x.size(0))
