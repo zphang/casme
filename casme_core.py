@@ -110,8 +110,8 @@ class MaskerPriorCriterion(nn.Module):
     def forward(self,
                 mask, y_hat, y_hat_from_masked_x, y,
                 classifier_loss_from_masked_x, use_p):
-        y_hat_prob = F.softmax(y_hat.detach(), dim=1)
-        y_hat_from_masked_x_prob = F.softmax(y_hat_from_masked_x.detach(), dim=1)
+        y_hat_prob = F.softmax(y_hat, dim=1)
+        y_hat_from_masked_x_prob = F.softmax(y_hat_from_masked_x, dim=1)
 
         # Should this be / or - ?
         if self.config["prior"] == "subtract":
