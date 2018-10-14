@@ -144,7 +144,7 @@ def main():
             lambda_r=args.lambda_r,
             add_prob_layers=args.add_prob_layers,
             prob_loss_func=args.prob_loss_func,
-            prior=torch.ones(1000) / 1000,
+            prior=(torch.ones(1000) / 1000).to(device),
         )
     else:
         raise KeyError(args.masker_criterion)
