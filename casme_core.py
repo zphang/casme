@@ -162,9 +162,9 @@ class MaskerPriorCriterion(nn.Module):
 
         masker_loss = loss + regularization
         metadata = {
-            "correct_on_clean": correct_on_clean.mean(),
-            "mistaken_on_masked": mistaken_on_masked.mean(),
-            "nontrivially_confused": nontrivially_confused.mean(),
+            "correct_on_clean": correct_on_clean.long().mean(),
+            "mistaken_on_masked": mistaken_on_masked.long().mean(),
+            "nontrivially_confused": nontrivially_confused.long().mean(),
         }
         return masker_loss, metadata
 
