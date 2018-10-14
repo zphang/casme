@@ -232,6 +232,7 @@ class CASMERunner:
                       'Prec@1(C) {lc.acc.avg:.3f} ({lc.acc.val:.3f})\n'
                       'Loss(M) {lc.losses_m.avg:.4f} ({lc.losses_m.val:.4f})\t'
                       'Prec@1(M) {lc.acc_m.avg:.3f} ({lc.acc_m.val:.3f})\n'
+                      'NLoss(M) {lc.masker_loss.avg:.4f} ({lc.masker_loss.val:.4f})\n'
                       'CoC {lc.correct_on_clean.avg:.3f} ({lc.correct_on_clean.val:.3f})\t'
                       'MoM {lc.mistaken_on_masked.avg:.3f} ({lc.mistaken_on_masked.val:.3f})\t'
                       'NC {lc.nontrivially_confused.avg:.3f} ({lc.nontrivially_confused.val:.3f})\t'
