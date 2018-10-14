@@ -176,7 +176,7 @@ class MaskerPriorCriterion(nn.Module):
             raise KeyError(self.config["kl"])
 
         # apply main loss only when original images are correctly classified
-        kl_correct = kl * correct_on_clean.float()
+        kl_correct = kl# * correct_on_clean.float()
         loss = kl_correct.mean()
 
         masker_loss = loss + regularization
