@@ -1,4 +1,5 @@
 import copy
+import datetime as dt
 import random
 
 import torch
@@ -18,6 +19,11 @@ class LogContainers:
         self.losses_m = stats.AverageMeter()
         self.acc_m = stats.AverageMeter()
         self.statistics = stats.StatisticsContainer()
+        self.masker_loss = stats.AverageMeter()
+
+        self.correct_on_clean = stats.AverageMeter()
+        self.mistaken_on_masked = stats.AverageMeter()
+        self.nontrivially_confused = stats.AverageMeter()
 
 
 def default_apply_mask_func(x, mask):
@@ -82,12 +88,15 @@ class MaskerCriterion(nn.Module):
 
 
 class MaskerPriorCriterion(nn.Module):
-    def __init__(self, prior, lambda_r, add_prob_layers, prob_loss_func):
+    def __init__(self, prior, lambda_r, add_prob_layers, prob_loss_func, config):
         super().__init__()
         self.prior = prior
         self.lambda_r = lambda_r
         self.add_prob_layers = add_prob_layers
         self.prob_loss_func = prob_loss_func
+
+        import json
+        self.config = json.loads(config)
 
     def forward(self,
                 mask, y_hat, y_hat_from_masked_x, y,
@@ -96,8 +105,14 @@ class MaskerPriorCriterion(nn.Module):
         y_hat_from_masked_x_prob = F.softmax(y_hat_from_masked_x.detach(), dim=1)
 
         # Should this be / or - ?
-        y_hat_is_over_prior = y_hat_prob / self.prior
-        y_hat_from_masked_x_prob_over_prior = y_hat_from_masked_x_prob / self.prior
+        if self.config["prior"] == "subtract":
+            y_hat_is_over_prior = y_hat_prob - self.prior
+            y_hat_from_masked_x_prob_over_prior = y_hat_from_masked_x_prob - self.prior
+        elif self.config["prior"] == "divide":
+            y_hat_is_over_prior = y_hat_prob / self.prior
+            y_hat_from_masked_x_prob_over_prior = y_hat_from_masked_x_prob / self.prior
+        else:
+            raise KeyError(self.config["prior"])
 
         _, max_indexes = y_hat_is_over_prior.detach().max(1)
         _, max_indexes_on_masked_x = y_hat_from_masked_x_prob_over_prior.detach().max(1)
@@ -132,17 +147,26 @@ class MaskerPriorCriterion(nn.Module):
         """
 
         # main loss for casme
-        #log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
-        #negative_kl = (log_prob * self.prior).sum(dim=1)
+        if self.config["kl"] == "forward":
+            log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
+            negative_kl = (log_prob * self.prior).sum(dim=1)
+        elif self.config["kl"] == "backward":
+            log_prior = torch.log(self.prior)
+            negative_kl = (log_prior * y_hat_from_masked_x_prob).sum(dim=1)
+        else:
+            raise KeyError(self.config["kl"])
 
-        log_prior = torch.log(self.prior)
-        negative_kl = (log_prior * y_hat_from_masked_x_prob).sum(dim=1)
         # apply main loss only when original images are correctly classified
         negative_kl_correct = negative_kl * correct_on_clean.float()
         loss = negative_kl_correct.mean()
 
         masker_loss = loss + regularization
-        return masker_loss
+        metadata = {
+            "correct_on_clean": correct_on_clean.mean(),
+            "mistaken_on_masked": mistaken_on_masked.mean(),
+            "nontrivially_confused": nontrivially_confused.mean(),
+        }
+        return masker_loss, metadata
 
 
 class CASMERunner:
@@ -202,8 +226,13 @@ class CASMERunner:
                       'Loss(C) {lc.losses.avg:.4f} ({lc.losses.val:.4f})\t'
                       'Prec@1(C) {lc.acc.avg:.3f} ({lc.acc.val:.3f})\n'
                       'Loss(M) {lc.losses_m.avg:.4f} ({lc.losses_m.val:.4f})\t'
-                      'Prec@1(M) {lc.acc_m.avg:.3f} ({lc.acc_m.val:.3f})\t'.format(lc=log_containers))
+                      'Prec@1(M) {lc.acc_m.avg:.3f} ({lc.acc_m.val:.3f})\n'
+                      'CoC {lc.correct_on_clean.avg:.3f} ({lc.correct_on_clean.val:.3f})\t'
+                      'MoM {lc.mistaken_on_masked.avg:.3f} ({lc.mistaken_on_masked.val:.3f})\t'
+                      'NC {lc.nontrivially_confused.avg:.3f} ({lc.nontrivially_confused.val:.3f})\t'
+                      ''.format(lc=log_containers))
                 log_containers.statistics.print_out()
+                print('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
                 print()
 
         if not is_train:
@@ -292,16 +321,20 @@ class CASMERunner:
                 classifier_loss_from_masked_x.backward(retain_graph=True)
                 self.classifier_optimizer.step()
 
-            casme_loss = self.masker_criterion(
+            masker_loss, masker_loss_metadata = self.masker_criterion(
                 mask=mask, y_hat=y_hat, y_hat_from_masked_x=y_hat_from_masked_x, y=y,
                 classifier_loss_from_masked_x=classifier_loss_from_masked_x, use_p=use_p,
             )
 
             # update casme - compute gradient, do SGD step
             self.masker_optimizer.zero_grad()
-            casme_loss.backward()
+            masker_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.masker.parameters(), 10)
             self.masker_optimizer.step()
+            log_containers.masker_loss.update(masker_loss.item(), x.size(0))
+            log_containers.correct_on_clean.update(masker_loss_metadata["correct_on_clean"].item(), x.size())
+            log_containers.mistaken_on_masked.update(masker_loss_metadata["mistaken_on_masked"].item(), x.size())
+            log_containers.nontrivially_confused.update(masker_loss_metadata["nontrivially_confused"].item(), x.size())
 
         # measure elapsed time
         log_containers.batch_time.update()

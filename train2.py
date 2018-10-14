@@ -62,6 +62,8 @@ parser.add_argument('--adversarial', action='store_true',
                     help='adversarial training uses classification loss instead of entropy')
 parser.add_argument('--masker-criterion', default="crossentropy", type=str,
                     help='crossentropy|kldivergence')
+parser.add_argument('--masker-criterion-config', default="", type=str,
+                    help='etc')
 
 parser.add_argument('--reproduce', default='',
                     help='reproducing paper results (F|L|FL|L100|L1000)')
@@ -145,6 +147,7 @@ def main():
             add_prob_layers=args.add_prob_layers,
             prob_loss_func=args.prob_loss_func,
             prior=(torch.ones(1000) / 1000).to(device),
+            config=args.masker_criterion_config,
         )
     else:
         raise KeyError(args.masker_criterion)
