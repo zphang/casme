@@ -175,7 +175,8 @@ def main():
     for epoch in range(args.epochs):
         epoch_start_time = time.time()
 
-        adjust_learning_rate(classifier_optimizer, masker_optimizer, epoch, args)
+        adjust_learning_rate(classifier_optimizer, masker_optimizer, epoch,
+                             lr=args.lr, lr_casme=args.lr_casme, lrde=args.lrde)
 
         # train for one epoch
         tr_s = casme_runner.train_or_eval(

@@ -10,6 +10,11 @@ import stats
 from train_utils import accuracy
 
 
+class PrintLogger:
+    def log(self, *args, **kwargs):
+        print(*args, **kwargs)
+
+
 class LogContainers:
     def __init__(self):
         self.batch_time = stats.TimeMeter()
@@ -194,6 +199,7 @@ class CASMERunner:
                  add_prob_layers, prob_sample_low, prob_sample_high,
                  print_freq,
                  device,
+                 logger=None,
                  apply_mask_func=default_apply_mask_func,
                  ):
         self.classifier = classifier
@@ -214,6 +220,7 @@ class CASMERunner:
         self.prob_sample_high = prob_sample_high
         self.print_freq = print_freq
         self.device = device
+        self.logger = logger
         self.apply_mask_func = apply_mask_func
 
         self.classifier_zoo = {}
@@ -233,29 +240,29 @@ class CASMERunner:
             # print log
             if i % self.print_freq == 0:
                 if is_train:
-                    print('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
+                    self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
                         epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), end='')
                 else:
-                    print('Test: [{0}/{1}]\t'.format(i, len(data_loader)), end='')
-                print('Time {lc.batch_time.avg:.3f} ({lc.batch_time.val:.3f})\t'
-                      'Data {lc.data_time.avg:.3f} ({lc.data_time.val:.3f})\n'
-                      'Loss(C) {lc.losses.avg:.4f} ({lc.losses.val:.4f})\t'
-                      'Prec@1(C) {lc.acc.avg:.3f} ({lc.acc.val:.3f})\n'
-                      'Loss(M) {lc.losses_m.avg:.4f} ({lc.losses_m.val:.4f})\t'
-                      'Prec@1(M) {lc.acc_m.avg:.3f} ({lc.acc_m.val:.3f})\n'
-                      'MTLoss(M) {lc.masker_total_loss.avg:.4f} ({lc.masker_total_loss.val:.4f})\t'
-                      'MLoss(M) {lc.masker_loss.avg:.4f} ({lc.masker_loss.val:.4f})\t'
-                      'MReg(M) {lc.masker_reg.avg:.4f} ({lc.masker_reg.val:.4f})\n'
-                      'CoC {lc.correct_on_clean.avg:.3f} ({lc.correct_on_clean.val:.3f})\t'
-                      'MoM {lc.mistaken_on_masked.avg:.3f} ({lc.mistaken_on_masked.val:.3f})\t'
-                      'NC {lc.nontrivially_confused.avg:.3f} ({lc.nontrivially_confused.val:.3f})\t'
-                      ''.format(lc=log_containers))
+                    self.logger.log('Test: [{0}/{1}]\t'.format(i, len(data_loader)), end='')
+                self.logger.log('Time {lc.batch_time.avg:.3f} ({lc.batch_time.val:.3f})\t'
+                                'Data {lc.data_time.avg:.3f} ({lc.data_time.val:.3f})\n'
+                                'Loss(C) {lc.losses.avg:.4f} ({lc.losses.val:.4f})\t'
+                                'Prec@1(C) {lc.acc.avg:.3f} ({lc.acc.val:.3f})\n'
+                                'Loss(M) {lc.losses_m.avg:.4f} ({lc.losses_m.val:.4f})\t'
+                                'Prec@1(M) {lc.acc_m.avg:.3f} ({lc.acc_m.val:.3f})\n'
+                                'MTLoss(M) {lc.masker_total_loss.avg:.4f} ({lc.masker_total_loss.val:.4f})\t'
+                                'MLoss(M) {lc.masker_loss.avg:.4f} ({lc.masker_loss.val:.4f})\t'
+                                'MReg(M) {lc.masker_reg.avg:.4f} ({lc.masker_reg.val:.4f})\n'
+                                'CoC {lc.correct_on_clean.avg:.3f} ({lc.correct_on_clean.val:.3f})\t'
+                                'MoM {lc.mistaken_on_masked.avg:.3f} ({lc.mistaken_on_masked.val:.3f})\t'
+                                'NC {lc.nontrivially_confused.avg:.3f} ({lc.nontrivially_confused.val:.3f})\t'
+                                ''.format(lc=log_containers))
                 log_containers.statistics.print_out()
-                print('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
-                print()
+                self.logger.log('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
+                self.logger.log()
 
         if not is_train:
-            print(' * Prec@1 {lc.acc.avg:.3f} Prec@1(M) {lc.acc_m.avg:.3f} '.format(lc=log_containers))
+            self.logger.log(' * Prec@1 {lc.acc.avg:.3f} Prec@1(M) {lc.acc_m.avg:.3f} '.format(lc=log_containers))
             log_containers.statistics.print_out()
 
         return {
@@ -291,7 +298,7 @@ class CASMERunner:
             # save classifier (needed only if previous iterations are used i.e. args.hp > 0)
             if self.prob_historic > 0 \
                     and ((i % self.save_freq == -1 % self.save_freq) or len(self.classifier_zoo) < 1):
-                print('Current iteration is saving, will be used in the future. ', end='', flush=True)
+                self.logger.log('Current iteration is saving, will be used in the future. ', end='', flush=True)
                 if len(self.classifier_zoo) < self.zoo_size:
                     index = len(self.classifier_zoo)
                 else:
@@ -300,7 +307,7 @@ class CASMERunner:
                 self.classifier_zoo[index] = {}
                 for p in state_dict:
                     self.classifier_zoo[index][p] = state_dict[p].cpu()
-                print('There are {0} iterations stored.'.format(len(self.classifier_zoo)), flush=True)
+                self.logger.log('There are {0} iterations stored.'.format(len(self.classifier_zoo)), flush=True)
 
         # detach inner layers to make them be features for decoder
         layers = [l.detach() for l in layers]

@@ -19,11 +19,11 @@ def accuracy(output, target, topk=(1,)):
         return res        
 
 
-def adjust_learning_rate(classifier_optimizer, masker_optimizer, epoch, args):
+def adjust_learning_rate(classifier_optimizer, masker_optimizer, epoch, lr, lr_casme, lrde):
     for param_group in classifier_optimizer.param_groups:
-        param_group['lr'] = args.lr * (0.1 ** (epoch // args.lrde))
+        param_group['lr'] = lr * (0.1 ** (epoch // lrde))
     for param_group in masker_optimizer.param_groups:
-        param_group['lr'] = args.lr_casme * (0.1 ** (epoch // args.lrde))
+        param_group['lr'] = lr_casme * (0.1 ** (epoch // lrde))
 
 
 def save_checkpoint(state, args):
