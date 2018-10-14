@@ -60,7 +60,7 @@ parser.add_argument('--lambda-r', default=10, type=float,
                     help='regularization weight controlling mask size')
 parser.add_argument('--adversarial', action='store_true',
                     help='adversarial training uses classification loss instead of entropy')
-parser.add_argument('--masker-criterion', default="crossentropy", action=str,
+parser.add_argument('--masker-criterion', default="crossentropy", type=str,
                     help='crossentropy|kldivergence')
 
 parser.add_argument('--reproduce', default='',
