@@ -132,8 +132,11 @@ class MaskerPriorCriterion(nn.Module):
         """
 
         # main loss for casme
-        log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
-        negative_kl = (log_prob * self.prior).sum(dim=1)
+        #log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
+        #negative_kl = (log_prob * self.prior).sum(dim=1)
+
+        log_prior = torch.log(self.prior)
+        negative_kl = (log_prior * y_hat_from_masked_x_prob).sum(dim=1)
         # apply main loss only when original images are correctly classified
         negative_kl_correct = negative_kl * correct_on_clean.float()
         loss = negative_kl_correct.mean()
