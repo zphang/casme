@@ -84,7 +84,12 @@ class MaskerCriterion(nn.Module):
             loss = negative_entropy_correct.mean()
 
         masker_loss = loss + regularization
-        return masker_loss
+        metadata = {
+            "correct_on_clean": correct_on_clean.float().mean(),
+            "mistaken_on_masked": mistaken_on_masked.float().mean(),
+            "nontrivially_confused": nontrivially_confused.float().mean(),
+        }
+        return masker_loss, metadata
 
 
 class MaskerPriorCriterion(nn.Module):
