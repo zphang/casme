@@ -166,6 +166,7 @@ class MaskerPriorCriterion(nn.Module):
             "mistaken_on_masked": mistaken_on_masked.float().mean(),
             "nontrivially_confused": nontrivially_confused.float().mean(),
         }
+        print(metadata)
         return masker_loss, metadata
 
 
