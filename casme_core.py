@@ -333,6 +333,7 @@ class CASMERunner:
             torch.nn.utils.clip_grad_norm_(self.masker.parameters(), 10)
             self.masker_optimizer.step()
             log_containers.masker_loss.update(masker_loss.item(), x.size(0))
+            print("Asd", masker_loss_metadata["correct_on_clean"].item())
             log_containers.correct_on_clean.update(masker_loss_metadata["correct_on_clean"].item(), x.size())
             log_containers.mistaken_on_masked.update(masker_loss_metadata["mistaken_on_masked"].item(), x.size())
             log_containers.nontrivially_confused.update(masker_loss_metadata["nontrivially_confused"].item(), x.size())
