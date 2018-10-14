@@ -132,14 +132,11 @@ class MaskerPriorCriterion(nn.Module):
         """
 
         # main loss for casme
-        if self.adversarial:
-            loss = -classifier_loss_from_masked_x
-        else:
-            log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
-            negative_kl = (log_prob * self.prior).sum(dim=1)
-            # apply main loss only when original images are correctly classified
-            negative_kl_correct = negative_kl * correct_on_clean.float()
-            loss = negative_kl_correct.mean()
+        log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
+        negative_kl = (log_prob * self.prior).sum(dim=1)
+        # apply main loss only when original images are correctly classified
+        negative_kl_correct = negative_kl * correct_on_clean.float()
+        loss = negative_kl_correct.mean()
 
         masker_loss = loss + regularization
         return masker_loss
