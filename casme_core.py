@@ -81,6 +81,70 @@ class MaskerCriterion(nn.Module):
         return masker_loss
 
 
+class MaskerPriorCriterion(nn.Module):
+    def __init__(self, prior, lambda_r, add_prob_layers, prob_loss_func):
+        super().__init__()
+        self.prior = prior
+        self.lambda_r = lambda_r
+        self.add_prob_layers = add_prob_layers
+        self.prob_loss_func = prob_loss_func
+
+    def forward(self,
+                mask, y_hat, y_hat_from_masked_x, y,
+                classifier_loss_from_masked_x, use_p):
+        y_hat_prob = F.softmax(y_hat.detach(), dim=1)
+        y_hat_from_masked_x_prob = F.softmax(y_hat_from_masked_x.detach(), dim=1)
+
+        # Should this be / or - ?
+        y_hat_is_over_prior = y_hat_prob / self.prior
+        y_hat_from_masked_x_prob_over_prior = y_hat_from_masked_x_prob / self.prior
+
+        _, max_indexes = y_hat_is_over_prior.detach().max(1)
+        _, max_indexes_on_masked_x = y_hat_from_masked_x_prob_over_prior.detach().max(1)
+
+        correct_on_clean = y.eq(max_indexes)
+        mistaken_on_masked = y.ne(max_indexes_on_masked_x)
+        nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
+
+        mask_mean = mask.mean(dim=3).mean(dim=2)
+        if self.add_prob_layers:
+            # adjust to minimize deviation from p
+            mask_mean = (mask_mean - use_p)
+            if self.prob_loss_func == "l1":
+                mask_mean = mask_mean.abs()
+            elif self.prob_loss_func == "l2":
+                mask_mean = mask_mean.pow(2)
+            else:
+                raise KeyError(self.prob_loss_func)
+
+        # apply regularization loss only on non-trivially confused images
+        regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
+        """
+            nontrivially_confused = 
+                    1 if relevant, else 0
+            nontrivially_confused - mask_mean = 
+                    if relevant: 1-mask_mean (small if large mask)
+                    else: something less than 0
+            F.relu(...) = 
+                    if relevant: 1-mask_mean (small if large mask)
+            - (...) = 
+                    if relevant: mask_mean (+const)
+        """
+
+        # main loss for casme
+        if self.adversarial:
+            loss = -classifier_loss_from_masked_x
+        else:
+            log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
+            negative_kl = (log_prob * self.prior).sum(dim=1)
+            # apply main loss only when original images are correctly classified
+            negative_kl_correct = negative_kl * correct_on_clean.float()
+            loss = negative_kl_correct.mean()
+
+        masker_loss = loss + regularization
+        return masker_loss
+
+
 class CASMERunner:
     def __init__(self,
                  classifier, masker,

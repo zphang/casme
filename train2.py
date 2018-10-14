@@ -60,6 +60,8 @@ parser.add_argument('--lambda-r', default=10, type=float,
                     help='regularization weight controlling mask size')
 parser.add_argument('--adversarial', action='store_true',
                     help='adversarial training uses classification loss instead of entropy')
+parser.add_argument('--masker-criterion', default="crossentropy", action='string',
+                    help='crossentropy|kldivergence')
 
 parser.add_argument('--reproduce', default='',
                     help='reproducing paper results (F|L|FL|L100|L1000)')
@@ -130,18 +132,30 @@ def main():
         pin_memory=False,
     )
 
+    if args.masker_criterion == "crossentropy":
+        masker_criterion = casme_core.MaskerCriterion(
+            lambda_r=args.lambda_r,
+            add_prob_layers=args.add_prob_layers,
+            prob_loss_func=args.prob_loss_func,
+            adversarial=args.adversarial,
+        )
+    elif args.masker_criterion == "kldivergence":
+        masker_criterion = casme_core.MaskerPriorCriterion(
+            lambda_r=args.lambda_r,
+            add_prob_layers=args.add_prob_layers,
+            prob_loss_func=args.prob_loss_func,
+            prior=torch.ones(1000) / 1000,
+        )
+    else:
+        raise KeyError(args.masker_criterion)
+
     casme_runner = casme_core.CASMERunner(
         classifier=classifier,
         masker=masker,
         classifier_optimizer=classifier_optimizer,
         masker_optimizer=masker_optimizer,
         classifier_criterion=nn.CrossEntropyLoss(),
-        masker_criterion=casme_core.MaskerCriterion(
-            lambda_r=args.lambda_r,
-            add_prob_layers=args.add_prob_layers,
-            prob_loss_func=args.prob_loss_func,
-            adversarial=args.adversarial,
-        ),
+        masker_criterion=masker_criterion,
         fixed_classifier=args.fixed_classifier,
         perc_of_training=args.perc_of_training,
         prob_historic=args.prob_historic,
