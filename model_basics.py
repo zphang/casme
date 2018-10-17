@@ -37,7 +37,7 @@ def old_load_model(casm_path):
         add_prob_layers=getattr(checkpoint["args"], "add_prob_layers", None)
     )
     print(checkpoint["args"])
-    decoder.load_state_dict(checkpoint['state_dict_decoder'])
+    decoder.load_state_dict(checkpoint['state_dict_masker'])
     decoder.eval().to(device)
     print("=> Model loaded.")
 
