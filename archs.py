@@ -206,3 +206,6 @@ class Masker(nn.Module):
                 .permute(3, 0, 1, 2)
             new_l.append(torch.cat([layer, p_slice], dim=1))
         return new_l
+
+def decoder(**kwargs):
+    return Decoder([256, 512, 1024, 2048], **kwargs)
