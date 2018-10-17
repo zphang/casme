@@ -60,7 +60,7 @@ def main():
         ])),
         batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
 
-    model = load_model(args.casm_path)
+    model = old_load_model(args.casm_path)
 
     perm = np.random.RandomState(seed=args.seed).permutation(len(data_loader))
     if args.plots > 0:
@@ -68,8 +68,7 @@ def main():
         print('List of sampled batches:', sorted(perm))
 
     dir_path = args.plots_path
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
+    os.makedirs(dir_path, exist_ok=True)
 
     for i, (input, target) in enumerate(data_loader):
         print('{} '.format(i), end='', flush=True)
