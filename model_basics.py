@@ -104,7 +104,7 @@ def get_mask(input, model, use_p=None, get_output=False):
 
 def binarize_mask(mask):
     with torch.no_grad():
-        avg = F.avg_pool2d(mask, 256, stride=1).squeeze(1)
+        avg = mask.view(-1, 1).mean()
         flat_mask = mask.cpu().view(mask.size(0), -1)
         binarized_mask = torch.zeros_like(flat_mask)
         for i in range(mask.size(0)):
