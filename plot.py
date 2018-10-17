@@ -7,16 +7,16 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-import patch_classification.patch_model.torch.patch_data_torch as patch_data
-from torch.utils.data import DataLoader
 from model_basics import load_model
 from utils import get_binarized_mask, get_masked_images, inpaint, permute_image
-import utilities.logger as logging_module
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+parser.add_argument('data', metavar='DIR',
+                    help='path to dataset')
 parser.add_argument('--casm-path', default='',
                     help='path to model that generate masks')
 
@@ -29,9 +29,9 @@ parser.add_argument('-b', '--batch-size', default=128, type=int,
 
 parser.add_argument('--columns', default=7, type=int,
                     help='number of consecutive images plotted together, one per column (default: 7, recommended 4 to 7)')
-parser.add_argument('--plots', default=16, type=int, 
+parser.add_argument('--plots', default=16, type=int,
                     help='number of different plots generated (default: 16, -1 to generate all of them)')
-parser.add_argument('--seed', default=931001, type=int, 
+parser.add_argument('--seed', default=931001, type=int,
                     help='random seed that is used to select images')
 parser.add_argument('--plots-path', default='',
                     help='directory for plots')
@@ -42,44 +42,26 @@ if args.columns > args.batch_size:
     args.columns = args.batch_size
 
 
-DATA_CONFIG = {
-    "num_parts": {
-        "training": {'malignant': 30, 'benign': 30, 'unknown': 100, 'outside': 100},
-        "validation": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
-        "test": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
-    },
-    "samples_per_epoch": {
-        "training": {'malignant': 100, 'benign': 200, 'unknown': 51700, 'outside': 48000},
-        # "training": {'malignant': 100 , 'benign': 200, 'unknown': 100, 'outside': 100},
-        "validation": {'malignant': 10, 'benign': 10, 'unknown': 5, 'outside': 5},
-        # "validation": {'malignant': -1, 'benign': -1, 'unknown': -1, 'outside': -1},
-        "test": {'malignant': -1, 'benign': -1, 'unknown': -1, 'outside': -1},
-    },
-    "parts_to_load": {
-        "training": {'malignant': 1, 'benign': 1, 'unknown': 6, 'outside': 5},
-        # "training": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
-        "validation": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
-        "test": {'malignant': 1, 'benign': 1, 'unknown': 1, 'outside': 1},
-    },
-    "paths": {
-        "training": "/gpfs/data/geraslab/Nan/data/segmentation_patches/patches_by_class_0907/training/",
-        "validation": "/gpfs/data/geraslab/Nan/data/segmentation_patches/patches_by_class_0907/validation/",
-        "test": "/gpfs/data/geraslab/Nan/data/segmentation_patches/patches_by_class_0907/test/",
-    },
-    "label_list": ["malignant", "benign", "unknown", "outside"],
-}
-
-
 def main():
     global args
 
-    logger = logging_module.PrintLogger()
-    dataset = patch_data.PickleDataset("validation", data_config=DATA_CONFIG, logger=logger)
-    data_loader = DataLoader(dataset, args.batch_size)
-    dataset.new_epoch()
-    
+    mean = np.array([0.485, 0.456, 0.406])
+    std = np.array([0.229, 0.224, 0.225])
+    normalize = transforms.Normalize(mean=mean,
+                                     std=std)
+    denormalize = transforms.Normalize(mean=-mean / std,
+                                       std=1 / std)
+    ## data loader without normalization
+    data_loader = torch.utils.data.DataLoader(
+        datasets.ImageFolder(os.path.join(args.data, 'val'), transforms.Compose([
+            transforms.Resize(args.resize),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+        ])),
+        batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
+
     model = load_model(args.casm_path)
-    
+
     perm = np.random.RandomState(seed=args.seed).permutation(len(data_loader))
     if args.plots > 0:
         perm = perm[:args.plots]
@@ -97,10 +79,14 @@ def main():
 
         ## normalize first few images
         normalized_input = input.clone()
+        for id in range(args.columns):
+            normalize(normalized_input[id])
 
         ## get mask and masked images
         binary_mask, soft_mask = get_binarized_mask(normalized_input, model)
         soft_masked_image = normalized_input * soft_mask
+        for j in range(soft_masked_image.size(0)):
+            denormalize(soft_masked_image[j])
         masked_in, masked_out = get_masked_images(input, binary_mask, 0.35)
         inpainted = inpaint(binary_mask, masked_out)
 
@@ -117,18 +103,17 @@ def main():
 
         ## plot
         for col in range(args.columns):
-            axes[0, col].set_title(target[col].item())
-            axes[0, col].imshow(permute_image(input[col]), cmap="gray")
-            axes[1, col].imshow(permute_image(masked_in[col]), cmap="gray")
-            axes[2, col].imshow(permute_image(masked_out[col]), cmap="gray")
-            axes[3, col].imshow(permute_image(inpainted[col]), cmap="gray")
-            axes[4, col].imshow(permute_image(soft_masked_image[col]), cmap="gray")
+            axes[0, col].imshow(permute_image(input[col]))
+            axes[1, col].imshow(permute_image(masked_in[col]))
+            axes[2, col].imshow(permute_image(masked_out[col]))
+            axes[3, col].imshow(permute_image(inpainted[col]))
+            axes[4, col].imshow(permute_image(soft_masked_image[col]))
 
         for ax in axes.flatten():
             ax.set_xticks([])
             ax.set_yticks([])
 
-        path = os.path.join(dir_path,str(i) + '.png')
+        path = os.path.join(dir_path, str(i) + '.png')
         plt.savefig(path, dpi=300, bbox_inches='tight')
         plt.show()
         plt.clf()

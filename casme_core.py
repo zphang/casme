@@ -150,17 +150,14 @@ class MaskerPriorCriterion(nn.Module):
         regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
 
         # main loss for casme
+        log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
         if self.config["kl"] == "forward":
-            log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
+            # - sum: p_i log(q_i)
             kl = - (self.prior * log_prob).sum(dim=1)
         elif self.config["kl"] == "backward":
             log_prior = torch.log(self.prior)
-            """
-            negative_kl = (y_hat_from_masked_x_prob
-                           * (log_prior - F.log_softmax(y_hat_from_masked_x))).sum(dim=1)
-            """
-            kl = - (y_hat_from_masked_x_prob
-                    * (log_prior - F.log_softmax(y_hat_from_masked_x))).sum(dim=1)
+            # - sum: q_i log(p_i / q_i)
+            kl = - (y_hat_from_masked_x_prob * (log_prior - log_prob)).sum(dim=1)
         else:
             raise KeyError(self.config["kl"])
 
