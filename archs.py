@@ -208,4 +208,4 @@ class Masker(nn.Module):
         return new_l
 
 def decoder(**kwargs):
-    return Masker([64, 256, 512, 1024, 2048], **kwargs)
+    return Masker([64, 256, 512, 1024, 2048], 64 **kwargs)
