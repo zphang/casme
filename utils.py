@@ -34,7 +34,7 @@ def inpaint(mask, masked_image):
         permuted_image = permute_image(masked_image[i], mul255=True)
         m = mask[i].squeeze().byte().numpy()
         inpainted_numpy = cv2.inpaint(permuted_image, m, 3, cv2.INPAINT_TELEA)  # cv2.INPAINT_NS
-        l.append(transforms.ToTensor()(np.expand_dims(inpainted_numpy, 2)).unsqueeze(0))
+        l.append(transforms.ToTensor()(inpainted_numpy).unsqueeze(0))
     inpainted_tensor = torch.cat(l, 0)
 
     return inpainted_tensor       
@@ -42,10 +42,9 @@ def inpaint(mask, masked_image):
 
 def permute_image(image_tensor, mul255 = False):
     with torch.no_grad():
-        # image = image_tensor.clone().squeeze().permute(1, 2, 0)
-        image = image_tensor.clone().permute(1, 2, 0)
+        image = image_tensor.clone().squeeze().permute(1, 2, 0)
         if mul255:
             image *= 255
             image = image.byte()
 
-        return image.squeeze(2).numpy()
+        return image.numpy()
