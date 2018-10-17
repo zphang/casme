@@ -33,7 +33,7 @@ def old_load_model(casm_path):
     classifier.load_state_dict(checkpoint['state_dict_classifier'])
     classifier.eval().to(device)
 
-    decoder = archs.masker(
+    decoder = archs.decoder(
         add_prob_layers=getattr(checkpoint["args"], "add_prob_layers", None)
     )
     print(checkpoint["args"])
