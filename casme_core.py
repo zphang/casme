@@ -1,5 +1,6 @@
 import copy
 import datetime as dt
+import json
 import random
 
 import torch
@@ -108,8 +109,6 @@ class MaskerPriorCriterion(nn.Module):
         self.lambda_r = lambda_r
         self.add_prob_layers = add_prob_layers
         self.prob_loss_func = prob_loss_func
-
-        import json
         self.config = json.loads(config)
 
     def forward(self,
@@ -163,10 +162,15 @@ class MaskerPriorCriterion(nn.Module):
 
         # apply main loss only when original images are correctly classified
         if self.config["loss_on_coc"]:
-            loss_kl = kl * correct_on_clean.float()
+            kl = kl * correct_on_clean.float()
         else:
-            loss_kl = kl
-        loss = loss_kl.mean()
+            kl = kl
+
+        if "ignore_class" in self.config:
+            keep_filter = (y != self.config["ignore_class"]).float()
+            kl = kl * keep_filter
+
+        loss = kl.mean()
 
         masker_loss = loss + regularization
         metadata = {
