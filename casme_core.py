@@ -39,12 +39,13 @@ def default_apply_mask_func(x, mask):
 
 
 class MaskerCriterion(nn.Module):
-    def __init__(self, lambda_r, add_prob_layers, prob_loss_func, adversarial):
+    def __init__(self, lambda_r, add_prob_layers, prob_loss_func, adversarial, device):
         super().__init__()
         self.lambda_r = lambda_r
         self.add_prob_layers = add_prob_layers
         self.prob_loss_func = prob_loss_func
         self.adversarial = adversarial
+        self.device = device
 
     def forward(self,
                 mask, y_hat, y_hat_from_masked_x, y,
@@ -103,13 +104,17 @@ class MaskerCriterion(nn.Module):
 
 
 class MaskerPriorCriterion(nn.Module):
-    def __init__(self, prior, lambda_r, add_prob_layers, prob_loss_func, config):
+    def __init__(self, lambda_r, class_weights, add_prob_layers, prob_loss_func, config, device):
         super().__init__()
-        self.prior = prior
         self.lambda_r = lambda_r
         self.add_prob_layers = add_prob_layers
         self.prob_loss_func = prob_loss_func
         self.config = json.loads(config)
+        self.device = device
+
+        self.class_weights = torch.Tensor(class_weights).to(device)
+        inverse_class_weights = 1 / self.class_weights
+        self.prior = (inverse_class_weights / inverse_class_weights.sum())
 
     def forward(self,
                 mask, y_hat, y_hat_from_masked_x, y,
@@ -146,7 +151,7 @@ class MaskerPriorCriterion(nn.Module):
                 raise KeyError(self.prob_loss_func)
 
         # apply regularization loss only on non-trivially confused images
-        regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
+        regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean)
 
         # main loss for casme
         log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
@@ -170,6 +175,11 @@ class MaskerPriorCriterion(nn.Module):
             keep_filter = (y != self.config["ignore_class"]).float()
             kl = kl * keep_filter
 
+        sample_weights = torch.index_select(self.class_weights, dim=0, index=y)
+        regularization = regularization * sample_weights
+        kl = kl * sample_weights
+
+        regularization = regularization.mean()
         loss = kl.mean()
 
         masker_loss = loss + regularization
