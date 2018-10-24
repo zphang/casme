@@ -171,13 +171,22 @@ class MaskerPriorCriterion(nn.Module):
         else:
             kl = kl
 
-        if "ignore_class" in self.config:
-            keep_filter = (y != self.config["ignore_class"]).float()
+        if "nothing_class" in self.config:
+            keep_filter = (y != self.config["nothing_class"]).float()
             kl = kl * keep_filter
 
-        sample_weights = torch.index_select(self.class_weights, dim=0, index=y)
-        regularization = regularization * sample_weights
-        kl = kl * sample_weights
+        if self.config["apply_class_weight"]:
+            sample_weights = torch.index_select(self.class_weights, dim=0, index=y)
+            regularization = regularization * sample_weights
+            kl = kl * sample_weights
+
+        if "nothing_class_reg_weight" in self.config:
+            reg_weight = (
+                (y == self.config["nothing_class"]).float()
+                * (self.config["nothing_class_reg_weight"] - 1)
+                + 1
+            )
+            regularization = regularization * reg_weight
 
         regularization = regularization.mean()
         loss = kl.mean()
