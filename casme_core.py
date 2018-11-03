@@ -9,6 +9,7 @@ import torch.nn.functional as F
 
 import stats
 from train_utils import accuracy
+from PConv_Keras.libs.util import random_mask
 
 
 class PrintLogger:
@@ -41,12 +42,31 @@ class LogContainers:
 def default_apply_mask_func(x, mask):
     return x * (1 - mask)
 
+def apply_inverted_mask_func(x, mask):
+    return x * mask
+
+def invert_mask_func(mask):
+    return 1 - mask
+    
+def apply_uniform_random_value_mask_func(x, mask):
+    # for mask, return image infilled with random value between 0 and 1?
+    # zero_mean_std_1?
+    # x[mask==1] = np.random.random((mask==1).shape)
+    return None
+
+def default_infill_func(x, mask, generated_image):
+    # for mask, return image infilled with generated_image
+    # mask = 1, non-mask = 0
+    # x[mask==1] = generated_image[mask==1]
+    return None
+
+
 
 class InfillerCriterion(nn.Module):
     def __init__(self, lambda_r, add_prob_layers, prob_loss_func, adversarial, device):
         super().__init__()
 
-    def forward(self, x):
+    def forward(self, x, mask, generated_image, layers):
         pass
 
 class MaskerCriterion(nn.Module):
@@ -421,6 +441,11 @@ class InfillerRunner:
         self.print_freq = print_freq
         self.device = device
         self.logger = logger if logger is not None else PrintLogger()
+        if self.infiller.model_type == "ciGAN":
+            self.apply_mask_func = apply_uniform_random_value_mask_func
+        else:
+            self.apply_mask_func = default_apply_mask_func
+        self.infill_func = default_infill_func
 
     def train_or_eval(self, data_loader, is_train=False, epoch=None):
         log_containers = LogContainers()
@@ -454,24 +479,30 @@ class InfillerRunner:
 
     def train_or_eval_batch(self, x, y, i, log_containers, is_train=False):
 
-        # compute classifier prediction on the original images and get inner layers
-        with torch.set_grad_enabled(False):
-            y_hat, layers = self.classifier(x, return_intermediate=True)
-
-        # update metrics
-        log_containers.acc.update(accuracy(y_hat.detach(), y, topk=(1,))[0].item(), x.size(0))
-
-        # detach inner layers to make them be features for decoder
-        layers = [l.detach() for l in layers]
+        # TODO: use data loader to parallalize mask generation
+        mask = np.stack([random_mask(x.shape[2], x.shape[3], x.shape[1]) for _ in range(x.shape[0])], axis=0)
+        mask = invert_mask_func(mask) # important
+        mask = mask.reshape(x.shape)
+        masked_x = self.apply_mask_func(x=x, mask=mask)
 
         with torch.set_grad_enabled(is_train):
             # compute mask and masked input
-            generated_image = self.infiller(x, layers)
+            generated_image = self.infiller(masked_x, mask)
             infilled_image = self.infill_func(x=x, mask=mask, generated_image=generated_image)
+
+        # compute classifier prediction on the original images and get inner layers
+        with torch.set_grad_enabled(False):
+            y_hat, layers = self.classifier(x, return_intermediate=True)
+            infilled_y_hat, infilled_layers = self.classifier(infilled_image, return_intermediate=True)
+
+        # detach inner layers to make them be features for decoder
+        layers = [l.detach() for l in layers]
+        infilled_layers = [l.detach() for l in infilled_layers]
 
         if is_train:
             infiller_total_loss, infiller_loss_metadata = self.infiller_criterion(
                 mask=mask, generated_image=generated_image, infilled_image=infilled_image,
+                layers=layers, infilled_layers=infilled_layers,
             )
 
             # update casme - compute gradient, do SGD step
