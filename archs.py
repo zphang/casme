@@ -140,6 +140,18 @@ def resnet50shared(pretrained=False, **kwargs):
     return model
 
 
+class Infiller(nn.Module):
+
+    def __init__(self, model_type):
+        super().__init__()
+        if model_type == "ciGAN":
+            pass
+        else:
+            raise NotImplementedError()
+
+    def forward(self, x, layers):
+        pass
+
 class Masker(nn.Module):
 
     def __init__(self, in_channels, out_channel,

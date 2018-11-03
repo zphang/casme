@@ -33,10 +33,21 @@ class LogContainers:
         self.mistaken_on_masked = stats.AverageMeter()
         self.nontrivially_confused = stats.AverageMeter()
 
+        self.infiller_total_loss = stats.AverageMeter()
+        self.infiller_loss = stats.AverageMeter()
+        self.infiller_reg = stats.AverageMeter()
+
 
 def default_apply_mask_func(x, mask):
     return x * (1 - mask)
 
+
+class InfillerCriterion(nn.Module):
+    def __init__(self, lambda_r, add_prob_layers, prob_loss_func, adversarial, device):
+        super().__init__()
+
+    def forward(self, x):
+        pass
 
 class MaskerCriterion(nn.Module):
     def __init__(self, lambda_r, add_prob_layers, prob_loss_func, adversarial, device):
@@ -389,3 +400,95 @@ class CASMERunner:
         else:
             self.masker.eval()
             self.classifier.eval()
+
+class InfillerRunner:
+    def __init__(self,
+                 classifier, infiller,
+                 infiller_optimizer,
+                 infiller_criterion,
+                 save_freq,
+                 print_freq
+                 device,
+                 logger=None,
+                 ):
+        self.classifier = classifier
+        self.infiller = infiller
+        self.infiller_optimizer = infiller_optimizer
+        self.infiller_criterion = masker_criterion.to(device)
+
+        self.perc_of_training = perc_of_training
+        self.save_freq = save_freq
+        self.print_freq = print_freq
+        self.device = device
+        self.logger = logger if logger is not None else PrintLogger()
+
+    def train_or_eval(self, data_loader, is_train=False, epoch=None):
+        log_containers = LogContainers()
+        self.models_mode(is_train)
+        for i, (x, y) in enumerate(data_loader):
+            if is_train and i > len(data_loader) * self.perc_of_training:
+                break
+            x, y = x.to(self.device), y.to(self.device)
+            log_containers.data_time.update()
+            self.train_or_eval_batch(
+                x, y, i,
+                log_containers=log_containers, is_train=is_train,
+            )
+            # print log
+            if i % self.print_freq == 0:
+                if is_train:
+                    self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
+                        epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), end='')
+                else:
+                    self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), end='')
+                self.logger.log('Time {lc.batch_time.avg:.3f} ({lc.batch_time.val:.3f})\t'
+                                'Data {lc.data_time.avg:.3f} ({lc.data_time.val:.3f})\n'
+                                'ITLoss(M) {lc.infiller_total_loss.avg:.4f} ({lc.infiller_total_loss.val:.4f})\t'
+                                'ILoss(M) {lc.infiller_loss.avg:.4f} ({lc.infiller_loss.val:.4f})\t'
+                                'IReg(M) {lc.infiller_reg.avg:.4f} ({lc.infiller_reg.val:.4f})\n'
+                                ''.format(lc=log_containers))
+                log_containers.statistics.print_out()
+                self.logger.log('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
+                self.logger.log()
+
+
+    def train_or_eval_batch(self, x, y, i, log_containers, is_train=False):
+
+        # compute classifier prediction on the original images and get inner layers
+        with torch.set_grad_enabled(False):
+            y_hat, layers = self.classifier(x, return_intermediate=True)
+
+        # update metrics
+        log_containers.acc.update(accuracy(y_hat.detach(), y, topk=(1,))[0].item(), x.size(0))
+
+        # detach inner layers to make them be features for decoder
+        layers = [l.detach() for l in layers]
+
+        with torch.set_grad_enabled(is_train):
+            # compute mask and masked input
+            generated_image = self.infiller(x, layers)
+            infilled_image = self.infill_func(x=x, mask=mask, generated_image=generated_image)
+
+        if is_train:
+            infiller_total_loss, infiller_loss_metadata = self.infiller_criterion(
+                mask=mask, generated_image=generated_image, infilled_image=infilled_image,
+            )
+
+            # update casme - compute gradient, do SGD step
+            self.infiller_optimizer.zero_grad()
+            infiller_total_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10)
+            self.masker_optimizer.step()
+            log_containers.infiller_total_loss.update(masker_total_loss.item(), x.size(0))
+            log_containers.infiller_loss.update(infiller_loss_metadata["loss"].item(), x.size(0))
+            log_containers.infiller_reg.update(infiller_loss_metadata["regularization"].item(), x.size(0))
+
+        # measure elapsed time
+        log_containers.batch_time.update()
+
+    def models_mode(self, train):
+        self.classifier.eval()
+        if train:
+            self.infiller.train()
+        else:
+            self.infiller.eval()
