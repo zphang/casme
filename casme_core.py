@@ -84,7 +84,7 @@ class InfillerCriterion(nn.Module):
 
         # assuming 1 means background
         hole = self.l1(default_apply_mask_func(x, mask), default_apply_mask_func(generated_image, mask))
-        valid = self.l1(apply_inverted_mask_func(x, mask), apply_inverted_mask_func(x, mask))
+        valid = self.l1(apply_inverted_mask_func(x, mask), apply_inverted_mask_func(generated_image, mask))
 
         # layers = feature of gt image
 
