@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 
+from pytorch_inpainting_with_partial_conv.net import PConvUNet
+
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -142,15 +144,29 @@ def resnet50shared(pretrained=False, **kwargs):
 
 class Infiller(nn.Module):
 
-    def __init__(self, model_type):
+    def __init__(self, model_type, input_channels):
         super().__init__()
+        self.model_type = model_type
+        self.input_channels = input_channels
         if model_type == "ciGAN":
+            # do I have a mask for each category, 1 indicating salient region?
+            pass
+        elif model_type == "pconv":
+            self.model = PConvUNet(layer_size=6, input_channels=input_channels)
+        elif model_type == "pconv_gan":
             pass
         else:
             raise NotImplementedError()
 
-    def forward(self, x, layers):
-        pass
+    def forward(self, x, mask):
+        if self.model_type == "ciGAN":
+            pass
+        elif self.model_type == "pconv":
+            return self.model(x, mask)
+        elif self.model_type == "pconv_gan":
+            pass
+        else:
+            raise NotImplementedError()
 
 class Masker(nn.Module):
 

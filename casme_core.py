@@ -10,6 +10,8 @@ import torch.nn.functional as F
 import stats
 from train_utils import accuracy
 from PConv_Keras.libs.util import random_mask
+from pytorch_inpainting_with_partial_conv.loss import gram_matrix, total_variation_loss
+import numpy as np
 
 
 class PrintLogger:
@@ -37,6 +39,12 @@ class LogContainers:
         self.infiller_total_loss = stats.AverageMeter()
         self.infiller_loss = stats.AverageMeter()
         self.infiller_reg = stats.AverageMeter()
+        self.infiller_hole = stats.AverageMeter()
+        self.infiller_valid = stats.AverageMeter()
+        self.infiller_perceptual = stats.AverageMeter()
+        self.infiller_style_out = stats.AverageMeter()
+        self.infiller_style_comp = stats.AverageMeter()
+        self.infiller_tv = stats.AverageMeter()
 
 
 def default_apply_mask_func(x, mask):
@@ -58,16 +66,52 @@ def default_infill_func(x, mask, generated_image):
     # for mask, return image infilled with generated_image
     # mask = 1, non-mask = 0
     # x[mask==1] = generated_image[mask==1]
-    return None
-
+    return x * mask + generated_image * (1 - mask)
+    #return None
 
 
 class InfillerCriterion(nn.Module):
-    def __init__(self, lambda_r, add_prob_layers, prob_loss_func, adversarial, device):
+    def __init__(self, model_type):
         super().__init__()
+        self.l1 = nn.L1Loss()
+        # TODO: take mask function as parameters
+        # TODO: take model hyperparameters (how many layers to use fur perceptual loss, loss mutlipliers)
+        # TODO: use different criterion depending on models
+        self.model_type = model_type
 
-    def forward(self, x, mask, generated_image, layers):
-        pass
+    def forward(self, x, mask, generated_image, infilled_image, layers, generated_layers, infilled_layers):
+        # x here is ground-truth
+
+        # assuming 1 means background
+        hole = self.l1(default_apply_mask_func(x, mask), default_apply_mask_func(generated_image, mask))
+        valid = self.l1(apply_inverted_mask_func(x, mask), apply_inverted_mask_func(x, mask))
+
+        # layers = feature of gt image
+
+        perceptual_loss = 0# self.l1(layers[i], infilled_layers[i])
+        style_out_loss = 0# self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
+        style_comp_loss = 0# self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
+        for i in range(3):
+            perceptual_loss += self.l1(layers[i], infilled_layers[i])
+            style_out_loss += self.l1(gram_matrix(layers[i]), gram_matrix(generated_layers[i]))
+            style_comp_loss += self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
+
+        # TODO: Is this loss wrong? if it only backprops to generated bits... ... Try implementing my own.
+        tv = total_variation_loss(infilled_image)
+        regularization = 0
+        loss = 6 * hole + valid + 0.05 * perceptual_loss + 120*(style_out_loss+style_comp_loss) + 0.1*tv
+        infiller_loss = loss + regularization
+        metadata = {
+            "hole": hole,
+            "valid": valid,
+            "perceptual_loss": perceptual_loss,
+            "style_out_loss": style_out_loss,
+            "style_comp_loss": style_comp_loss,
+            "tv": tv,
+            "loss": loss,
+            "regularization": regularization,
+        }
+        return infiller_loss, metadata
 
 class MaskerCriterion(nn.Module):
     def __init__(self, lambda_r, add_prob_layers, prob_loss_func, adversarial, device):
@@ -427,14 +471,15 @@ class InfillerRunner:
                  infiller_optimizer,
                  infiller_criterion,
                  save_freq,
-                 print_freq
+                 print_freq,
+                 perc_of_training,
                  device,
                  logger=None,
                  ):
         self.classifier = classifier
         self.infiller = infiller
         self.infiller_optimizer = infiller_optimizer
-        self.infiller_criterion = masker_criterion.to(device)
+        self.infiller_criterion = infiller_criterion.to(device)
 
         self.perc_of_training = perc_of_training
         self.save_freq = save_freq
@@ -442,9 +487,10 @@ class InfillerRunner:
         self.device = device
         self.logger = logger if logger is not None else PrintLogger()
         if self.infiller.model_type == "ciGAN":
+            # TODO: ciGAN uses 0 as non-mask, and mask will be converted so. 
             self.apply_mask_func = apply_uniform_random_value_mask_func
         else:
-            self.apply_mask_func = default_apply_mask_func
+            self.apply_mask_func = apply_inverted_mask_func
         self.infill_func = default_infill_func
 
     def train_or_eval(self, data_loader, is_train=False, epoch=None):
@@ -461,38 +507,61 @@ class InfillerRunner:
             )
             # print log
             if i % self.print_freq == 0:
+                is_printlogger = 'PrintLogger' in str(type(self.logger))
                 if is_train:
-                    self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
-                        epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), end='')
+                    if is_printlogger:
+                        self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
+                            epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), end='')
+                    else:
+                        self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
+                            epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)))
                 else:
-                    self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), end='')
+                    if is_printlogger:
+                        self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), end='')
+                    else:
+                        self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)))
+                # TODO: print out other parts of losses
                 self.logger.log('Time {lc.batch_time.avg:.3f} ({lc.batch_time.val:.3f})\t'
                                 'Data {lc.data_time.avg:.3f} ({lc.data_time.val:.3f})\n'
                                 'ITLoss(M) {lc.infiller_total_loss.avg:.4f} ({lc.infiller_total_loss.val:.4f})\t'
-                                'ILoss(M) {lc.infiller_loss.avg:.4f} ({lc.infiller_loss.val:.4f})\t'
-                                'IReg(M) {lc.infiller_reg.avg:.4f} ({lc.infiller_reg.val:.4f})\n'
+                                'ILoss(M) {lc.infiller_loss.avg:.4f} ({lc.infiller_loss.val:.4f})\n'
+                                'IHole(M) {lc.infiller_hole.avg:.4f} ({lc.infiller_hole.val:.4f})\n'
+                                'IValid(M) {lc.infiller_valid.avg:.4f} ({lc.infiller_valid.val:.4f})\n'
+                                'IPerceptual(M) {lc.infiller_perceptual.avg:.4f} ({lc.infiller_perceptual.val:.4f})\n'
+                                'IStyleOut(M) {lc.infiller_style_out.avg:.4f} ({lc.infiller_style_out.val:.4f})\n'
+                                'IStyleComp(M) {lc.infiller_style_comp.avg:.4f} ({lc.infiller_style_comp.val:.4f})\n'
+                                'ITV(M) {lc.infiller_tv.avg:.4f} ({lc.infiller_tv.val:.4f})\n'
+                                #'IReg(M) {lc.infiller_reg.avg:.4f} ({lc.infiller_reg.val:.4f})\n'
                                 ''.format(lc=log_containers))
                 log_containers.statistics.print_out()
                 self.logger.log('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
-                self.logger.log()
+                if is_printlogger:
+                    self.logger.log()
 
 
     def train_or_eval_batch(self, x, y, i, log_containers, is_train=False):
 
         # TODO: use data loader to parallalize mask generation
+        # TODO: mask will be inverted if generated by masker... handle it later
         mask = np.stack([random_mask(x.shape[2], x.shape[3], x.shape[1]) for _ in range(x.shape[0])], axis=0)
-        mask = invert_mask_func(mask) # important
-        mask = mask.reshape(x.shape)
+        # generated mask here uses 1 as non-mask
+        if self.infiller.model_type == "ciGAN":
+            mask = invert_mask_func(mask) # ciGAN uses 0 as non-mask
+        #mask = mask.reshape(x.shape)
+        # I should create FloatTensor and send to GPU and turn into cuda tensor by doing so
+        mask = torch.cuda.FloatTensor(mask).to(self.device)
+        mask = mask.permute(0,3,1,2)
         masked_x = self.apply_mask_func(x=x, mask=mask)
 
         with torch.set_grad_enabled(is_train):
             # compute mask and masked input
-            generated_image = self.infiller(masked_x, mask)
+            generated_image, generated_mask = self.infiller(masked_x, mask)
             infilled_image = self.infill_func(x=x, mask=mask, generated_image=generated_image)
 
         # compute classifier prediction on the original images and get inner layers
         with torch.set_grad_enabled(False):
             y_hat, layers = self.classifier(x, return_intermediate=True)
+            generated_y_hat, generated_layers = self.classifier(generated_image, return_intermediate=True)
             infilled_y_hat, infilled_layers = self.classifier(infilled_image, return_intermediate=True)
 
         # detach inner layers to make them be features for decoder
@@ -501,21 +570,29 @@ class InfillerRunner:
 
         if is_train:
             infiller_total_loss, infiller_loss_metadata = self.infiller_criterion(
-                mask=mask, generated_image=generated_image, infilled_image=infilled_image,
-                layers=layers, infilled_layers=infilled_layers,
+                x=x, mask=mask, generated_image=generated_image, infilled_image=infilled_image,
+                layers=layers, generated_layers=generated_layers, infilled_layers=infilled_layers,
             )
 
             # update casme - compute gradient, do SGD step
             self.infiller_optimizer.zero_grad()
             infiller_total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10)
-            self.masker_optimizer.step()
-            log_containers.infiller_total_loss.update(masker_total_loss.item(), x.size(0))
+            self.infiller_optimizer.step()
+            # TODO: print out other parts of losses
+            log_containers.infiller_total_loss.update(infiller_total_loss.item(), x.size(0))
             log_containers.infiller_loss.update(infiller_loss_metadata["loss"].item(), x.size(0))
-            log_containers.infiller_reg.update(infiller_loss_metadata["regularization"].item(), x.size(0))
+            log_containers.infiller_hole.update(infiller_loss_metadata["hole"].item(), x.size(0))
+            log_containers.infiller_valid.update(infiller_loss_metadata["valid"].item(), x.size(0))
+            log_containers.infiller_perceptual.update(infiller_loss_metadata["perceptual_loss"].item(), x.size(0))
+            log_containers.infiller_style_out.update(infiller_loss_metadata["style_out_loss"].item(), x.size(0))
+            log_containers.infiller_style_comp.update(infiller_loss_metadata["style_comp_loss"].item(), x.size(0))
+            log_containers.infiller_tv.update(infiller_loss_metadata["tv"].item(), x.size(0))
+            #log_containers.infiller_reg.update(infiller_loss_metadata["regularization"].item(), x.size(0))
 
         # measure elapsed time
         log_containers.batch_time.update()
+        #print("batch done")
 
     def models_mode(self, train):
         self.classifier.eval()
