@@ -13,6 +13,9 @@ from PConv_Keras.libs.util import random_mask
 from pytorch_inpainting_with_partial_conv.loss import gram_matrix, total_variation_loss
 import numpy as np
 
+import cv2
+import scipy
+
 
 class PrintLogger:
     def log(self, *args, **kwargs):
@@ -79,7 +82,7 @@ class InfillerCriterion(nn.Module):
         # TODO: use different criterion depending on models
         self.model_type = model_type
 
-    def forward(self, x, mask, generated_image, infilled_image, layers, generated_layers, infilled_layers):
+    def forward(self, x, mask, generated_image, infilled_image, layers, generated_layers, infilled_layers, dilated_boundaries):
         # x here is ground-truth
 
         # assuming 1 means background
@@ -97,7 +100,8 @@ class InfillerCriterion(nn.Module):
             style_comp_loss += self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
 
         # TODO: Is this loss wrong? if it only backprops to generated bits... ... Try implementing my own.
-        tv = total_variation_loss(infilled_image)
+        # TODO: try using total_variation_loss on dilated boundary region only... but still, incorrect boundary
+        tv = total_variation_loss(apply_inverted_mask_func(infilled_image, dilated_boundaries))
         regularization = 0
         loss = 6 * hole + valid + 0.05 * perceptual_loss + 120*(style_out_loss+style_comp_loss) + 0.1*tv
         infiller_loss = loss + regularization
@@ -549,8 +553,21 @@ class InfillerRunner:
             mask = invert_mask_func(mask) # ciGAN uses 0 as non-mask
         #mask = mask.reshape(x.shape)
         # I should create FloatTensor and send to GPU and turn into cuda tensor by doing so
+        dilated_boundaries = []
+        for onemask in mask:
+            _, contours, _ = cv2.findContours(onemask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            boundary = np.zeros_like(onemask)
+            cv2.drawContours(boundary, contours, -1, 1, 1)
+            dilated_boundary = scipy.ndimage.morphology.binary_dilation(boundary, iterations=1)
+            dilated_boundaries.append(dilated_boundary)
+        dilated_boundaries = np.stack(dilated_boundaries, axis=0).astype(float)
+
         mask = torch.cuda.FloatTensor(mask).to(self.device)
         mask = mask.permute(0,3,1,2)
+
+        dilated_boundaries = torch.cuda.FloatTensor(dilated_boundaries).to(self.device)
+        dilated_boundaries = dilated_boundaries.permute(0,3,1,2)
+
         masked_x = self.apply_mask_func(x=x, mask=mask)
 
         with torch.set_grad_enabled(is_train):
@@ -566,12 +583,14 @@ class InfillerRunner:
 
         # detach inner layers to make them be features for decoder
         layers = [l.detach() for l in layers]
+        generated_layers = [l.detach() for l in generated_layers]
         infilled_layers = [l.detach() for l in infilled_layers]
 
         if is_train:
             infiller_total_loss, infiller_loss_metadata = self.infiller_criterion(
                 x=x, mask=mask, generated_image=generated_image, infilled_image=infilled_image,
                 layers=layers, generated_layers=generated_layers, infilled_layers=infilled_layers,
+                dilated_boundaries=dilated_boundaries
             )
 
             # update casme - compute gradient, do SGD step
