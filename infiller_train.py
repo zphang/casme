@@ -2,16 +2,14 @@ import argparse
 import os
 import time
 
-import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-import archs
-import casme_core
-from train_utils import adjust_learning_rate, save_checkpoint, set_args
+from casme import core, archs, criterion
+from casme.train_utils import save_checkpoint, set_args
 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
@@ -98,10 +96,10 @@ def main():
         infiller.parameters(), lr=args.lr,
         weight_decay=args.weight_decay,
     )
-    infiller_criterion = casme_core.InfillerCriterion(
+    infiller_criterion = criterion.InfillerCriterion(
         model_type=args.infiller_model,
     ) # TODO: Implement
-    infiller_runner = casme_core.InfillerRunner(
+    infiller_runner = core.InfillerRunner(
         classifier=classifier,
         infiller=infiller,
         infiller_optimizer=infiller_optimizer,
@@ -229,10 +227,10 @@ device=device
         # save checkpoint
         save_checkpoint({
             'epoch': epoch + 1,
-            #'state_dict_classifier': classifier.state_dict(),
-            #'state_dict_masker': masker.state_dict(),
-            #'optimizer_classifier': classifier_optimizer.state_dict(),
-            #'optimizer_masker': masker_optimizer.state_dict(),
+            # 'state_dict_classifier': classifier.state_dict(),
+            # 'state_dict_masker': masker.state_dict(),
+            # 'optimizer_classifier': classifier_optimizer.state_dict(),
+            # 'optimizer_masker': masker_optimizer.state_dict(),
             'state_dict_infiller': infiller.state_dict(),
             'optimizer_infiller': infiller_optimizer.state_dict(),
             'args': args,

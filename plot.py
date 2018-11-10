@@ -11,8 +11,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from model_basics import old_load_model
-from utils import get_binarized_mask, get_masked_images, inpaint, permute_image
+from casme.model_basics import old_load_model
+from casme.utils import get_binarized_mask, get_masked_images, inpaint, permute_image
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',

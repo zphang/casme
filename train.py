@@ -1,5 +1,4 @@
 import argparse
-import os
 import random
 import time
 
@@ -7,11 +6,10 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim
-import torchvision.transforms as transforms
 
-import archs
-from stats import AverageMeter, StatisticsContainer
-from train_utils import accuracy, adjust_learning_rate, save_checkpoint, set_args
+from casme import archs
+from casme.stats import AverageMeter, StatisticsContainer
+from casme.train_utils import accuracy, adjust_learning_rate, save_checkpoint, set_args
 
 from utilities.containers import PhaseSplits
 import utilities.logger as logging_module

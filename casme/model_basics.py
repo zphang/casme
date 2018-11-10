@@ -2,9 +2,8 @@ import numpy as np
 import scipy.ndimage
 
 import torch
-import torch.nn.functional as F
 
-import archs
+from casme import archs
 import patch_classification.patch_model.torch.models_torch as models
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

@@ -1,10 +1,9 @@
 import cv2
-import numpy as np
 
 import torch
 import torchvision.transforms as transforms
 
-from model_basics import binarize_mask, get_mask
+from casme.model_basics import binarize_mask, get_mask
 
 
 def get_binarized_mask(input, model, use_p=None):

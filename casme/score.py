@@ -9,8 +9,8 @@ import torch
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-from stats import AverageMeter, StatisticsContainer
-from model_basics import load_model, get_masks_and_check_predictions
+from casme.stats import AverageMeter, StatisticsContainer
+from casme.model_basics import load_model, get_masks_and_check_predictions
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',

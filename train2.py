@@ -9,9 +9,8 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-import archs
-import casme_core
-from train_utils import adjust_learning_rate, save_checkpoint, set_args
+from casme import core, archs, criterion
+from casme.train_utils import adjust_learning_rate, save_checkpoint, set_args
 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
@@ -135,14 +134,14 @@ def main():
     )
 
     if args.masker_criterion == "crossentropy":
-        masker_criterion = casme_core.MaskerCriterion(
+        masker_criterion = criterion.MaskerCriterion(
             lambda_r=args.lambda_r,
             add_prob_layers=args.add_prob_layers,
             prob_loss_func=args.prob_loss_func,
             adversarial=args.adversarial,
         )
     elif args.masker_criterion == "kldivergence":
-        masker_criterion = casme_core.MaskerPriorCriterion(
+        masker_criterion = criterion.MaskerPriorCriterion(
             lambda_r=args.lambda_r,
             add_prob_layers=args.add_prob_layers,
             prob_loss_func=args.prob_loss_func,
@@ -152,7 +151,7 @@ def main():
     else:
         raise KeyError(args.masker_criterion)
 
-    casme_runner = casme_core.CASMERunner(
+    casme_runner = core.CASMERunner(
         classifier=classifier,
         masker=masker,
         classifier_optimizer=classifier_optimizer,
