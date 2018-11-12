@@ -31,3 +31,15 @@ class InfillingLogContainers(LogContainers):
         self.infiller_style_out = stats.AverageMeter()
         self.infiller_style_comp = stats.AverageMeter()
         self.infiller_tv = stats.AverageMeter()
+
+
+class GANLogContainers:
+    def __init__(self):
+        self.batch_time = stats.TimeMeter()
+        self.data_time = stats.TimeMeter()
+        self.statistics = stats.StatisticsContainer()
+
+        self.d_loss_real = stats.AverageMeter()
+        self.d_loss_fake = stats.AverageMeter()
+        self.d_loss = stats.AverageMeter()
+        self.i_loss = stats.AverageMeter()

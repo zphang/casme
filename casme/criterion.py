@@ -242,3 +242,105 @@ class MaskerPriorCriterion(nn.Module):
             "regularization": regularization,
         }
         return masker_loss, metadata
+
+
+class MaskerInfillerPriorCriterion(nn.Module):
+    def __init__(self, lambda_r, class_weights, add_prob_layers, prob_loss_func, config, device):
+        super().__init__()
+        self.lambda_r = lambda_r
+        self.add_prob_layers = add_prob_layers
+        self.prob_loss_func = prob_loss_func
+        self.config = json.loads(config)
+        self.device = device
+
+        self.class_weights = torch.Tensor(class_weights).to(device)
+        inverse_class_weights = 1 / self.class_weights
+        self.prior = (inverse_class_weights / inverse_class_weights.sum())
+
+    def forward(self,
+                mask, modified_x,
+                # generated_image, infilled_image,
+                # layers, generated_layers, infilled_layers, dilated_boundaries,
+                y_hat, y_hat_from_modified_x, y,
+                classifier_loss_from_modified_x, use_p):
+        y_hat_prob = F.softmax(y_hat, dim=1)
+        y_hat_from_modified_x_prob = F.softmax(y_hat_from_modified_x, dim=1)
+
+        # Should this be / or - ?
+        if self.config["prior"] == "subtract":
+            y_hat_is_over_prior = y_hat_prob - self.prior
+            y_hat_from_modified_x_prob_over_prior = y_hat_from_modified_x - self.prior
+        elif self.config["prior"] == "divide":
+            y_hat_is_over_prior = y_hat_prob / self.prior
+            y_hat_from_modified_x_prob_over_prior = y_hat_from_modified_x_prob / self.prior
+        else:
+            raise KeyError(self.config["prior"])
+
+        _, max_indexes = y_hat_is_over_prior.detach().max(1)
+        _, max_indexes_on_modified_x = y_hat_from_modified_x_prob_over_prior.detach().max(1)
+
+        correct_on_clean = y.eq(max_indexes)
+        mistaken_on_masked = y.ne(max_indexes_on_modified_x)
+        nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
+
+        mask_mean = mask.mean(dim=3).mean(dim=2)
+        if self.add_prob_layers:
+            # adjust to minimize deviation from p
+            mask_mean = (mask_mean - use_p)
+            if self.prob_loss_func == "l1":
+                mask_mean = mask_mean.abs()
+            elif self.prob_loss_func == "l2":
+                mask_mean = mask_mean.pow(2)
+            else:
+                raise KeyError(self.prob_loss_func)
+
+        # apply regularization loss only on non-trivially confused images
+        regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean)
+
+        # main loss for casme
+        log_prob = F.log_softmax(y_hat_from_modified_x, dim=1)
+        if self.config["kl"] == "forward":
+            # - sum: p_i log(q_i)
+            kl = - (self.prior * log_prob).sum(dim=1)
+        elif self.config["kl"] == "backward":
+            log_prior = torch.log(self.prior)
+            # - sum: q_i log(p_i / q_i)
+            kl = - (y_hat_from_modified_x * (log_prior - log_prob)).sum(dim=1)
+        else:
+            raise KeyError(self.config["kl"])
+
+        # apply main loss only when original images are correctly classified
+        if self.config["loss_on_coc"]:
+            kl = kl * correct_on_clean.float()
+        else:
+            kl = kl
+
+        if "nothing_class" in self.config:
+            keep_filter = (y != self.config["nothing_class"]).float()
+            kl = kl * keep_filter
+
+        if self.config["apply_class_weight"]:
+            sample_weights = torch.index_select(self.class_weights, dim=0, index=y)
+            regularization = regularization * sample_weights
+            kl = kl * sample_weights
+
+        if "nothing_class_reg_weight" in self.config:
+            reg_weight = (
+                (y == self.config["nothing_class"]).float()
+                * (self.config["nothing_class_reg_weight"] - 1)
+                + 1
+            )
+            regularization = regularization * reg_weight
+
+        regularization = regularization.mean()
+        loss = kl.mean()
+
+        masker_loss = loss + regularization
+        metadata = {
+            "correct_on_clean": correct_on_clean.float().mean(),
+            "mistaken_on_masked": mistaken_on_masked.float().mean(),
+            "nontrivially_confused": nontrivially_confused.float().mean(),
+            "loss": loss,
+            "regularization": regularization,
+        }
+        return masker_loss, metadata

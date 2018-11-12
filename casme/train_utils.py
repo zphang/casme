@@ -20,10 +20,14 @@ def accuracy(output, target, topk=(1,)):
 
 
 def adjust_learning_rate(classifier_optimizer, masker_optimizer, epoch, lr, lr_casme, lrde):
-    for param_group in classifier_optimizer.param_groups:
+    print("DEPRECATED")
+    single_adjust_learning_rate(classifier_optimizer, epoch, lr, lrde)
+    single_adjust_learning_rate(masker_optimizer, epoch, lr_casme, lrde)
+
+
+def single_adjust_learning_rate(optimizer, epoch, lr, lrde):
+    for param_group in optimizer.param_groups:
         param_group['lr'] = lr * (0.1 ** (epoch // lrde))
-    for param_group in masker_optimizer.param_groups:
-        param_group['lr'] = lr_casme * (0.1 ** (epoch // lrde))
 
 
 def save_checkpoint(state, args):

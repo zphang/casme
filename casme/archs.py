@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 
-from pytorch_inpainting_with_partial_conv.net import PConvUNet
+from .ext.pytorch_inpainting_with_partial_conv import PConvUNet
 
 
 class Bottleneck(nn.Module):
@@ -167,6 +167,7 @@ class Infiller(nn.Module):
             pass
         else:
             raise NotImplementedError()
+
 
 class Masker(nn.Module):
 
