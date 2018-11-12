@@ -144,15 +144,16 @@ def resnet50shared(pretrained=False, **kwargs):
 
 class Infiller(nn.Module):
 
-    def __init__(self, model_type, input_channels):
+    def __init__(self, model_type, input_channels, num_layers=6):
         super().__init__()
         self.model_type = model_type
         self.input_channels = input_channels
+		self.num_layers = num_layers
         if model_type == "ciGAN":
             # do I have a mask for each category, 1 indicating salient region?
             pass
         elif model_type == "pconv":
-            self.model = PConvUNet(layer_size=6, input_channels=input_channels)
+            self.model = PConvUNet(layer_size=num_layers, input_channels=input_channels)
         elif model_type == "pconv_gan":
             pass
         else:
