@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 
-from pytorch_inpainting_with_partial_conv.net import PConvUNet
+from pytorch_inpainting_with_partial_conv.net import PConvUNet, PConvUNetGEN
 
 import torch.nn.functional as F
 
@@ -175,9 +175,10 @@ class Infiller(nn.Module):
         if model_type == "ciGAN":
             # do I have a mask for each category, 1 indicating salient region?
             pass
-        elif model_type in ["pconv", "pconv_gan"]:
+        elif model_type =="pconv":
             self.model = PConvUNet(layer_size=num_layers, input_channels=input_channels)
-        #elif model_type == "pconv_gan":
+        elif model_type == "pconv_gan":
+            self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels)
             #self.infiller = PConvUNet(layer_size=num_layers, input_channels=input_channels)
             #pass
         else:

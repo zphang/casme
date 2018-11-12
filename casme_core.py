@@ -87,7 +87,7 @@ class DiscriminatorCriterion(nn.Module):
         valid = torch.tensor([1.]*batch_size, device=self.device, requires_grad=False, dtype=torch.float32).view(-1,1)
         fake = torch.tensor([0.]*batch_size, device=self.device, requires_grad=False, dtype=torch.float32).view(-1,1)
         real_loss = self.adversarial_loss(real_images_logits, valid)
-        fake_loss = self.adversarial_loss(real_images_logits, fake)
+        fake_loss = self.adversarial_loss(gen_images_logits, fake)
         metadata = {
             'real_loss': real_loss,
             'fake_loss': fake_loss,
