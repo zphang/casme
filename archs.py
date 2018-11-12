@@ -6,6 +6,8 @@ import torch.utils.model_zoo as model_zoo
 
 from pytorch_inpainting_with_partial_conv.net import PConvUNet
 
+import torch.nn.functional as F
+
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -141,6 +143,27 @@ def resnet50shared(pretrained=False, **kwargs):
         model.load_state_dict(model_zoo.load_url('https://download.pytorch.org/models/resnet50-19c8e357.pth'))
     return model
 
+class Discriminator(nn.Module):
+    def __init__(self, input_dim, return_logits=False):
+        super().__init__()
+        self.fc1 = nn.Linear(input_dim, 1)
+        self.return_logits = return_logits
+
+    def forward(self, h, resnet):
+        h = resnet.final_bn(h)
+        h = resnet.relu(h)
+        pooled_h = h.view(h.shape[0], h.shape[1], -1).mean(dim=2)
+        # TODO: detach?
+        logits = self.fc1(pooled_h.detach())
+        #print(logits)
+        if self.return_logits:
+            output = logits
+        else:
+            output = F.log_softmax(logits, dim=1)
+        return output
+
+
+
 
 class Infiller(nn.Module):
 
@@ -152,20 +175,22 @@ class Infiller(nn.Module):
         if model_type == "ciGAN":
             # do I have a mask for each category, 1 indicating salient region?
             pass
-        elif model_type == "pconv":
+        elif model_type in ["pconv", "pconv_gan"]:
             self.model = PConvUNet(layer_size=num_layers, input_channels=input_channels)
-        elif model_type == "pconv_gan":
-            pass
+        #elif model_type == "pconv_gan":
+            #self.infiller = PConvUNet(layer_size=num_layers, input_channels=input_channels)
+            #pass
         else:
             raise NotImplementedError()
 
     def forward(self, x, mask):
         if self.model_type == "ciGAN":
             pass
-        elif self.model_type == "pconv":
+        #elif self.model_type == "pconv":
+        elif self.model_type in ["pconv", "pconv_gan"]:
             return self.model(x, mask)
-        elif self.model_type == "pconv_gan":
-            pass
+        #elif self.model_type == "pconv_gan":
+        #    pass
         else:
             raise NotImplementedError()
 

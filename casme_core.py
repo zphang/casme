@@ -49,6 +49,10 @@ class LogContainers:
         self.infiller_style_comp = stats.AverageMeter()
         self.infiller_tv = stats.AverageMeter()
 
+        self.discriminator_total_loss = stats.AverageMeter()
+        self.discriminator_real_loss = stats.AverageMeter()
+        self.discriminator_fake_loss = stats.AverageMeter()
+
 
 def default_apply_mask_func(x, mask):
     return x * (1 - mask)
@@ -72,6 +76,26 @@ def default_infill_func(x, mask, generated_image):
     return x * mask + generated_image * (1 - mask)
     #return None
 
+class DiscriminatorCriterion(nn.Module):
+    def __init__(self, device):
+        super().__init__()
+        self.adversarial_loss = torch.nn.BCEWithLogitsLoss()
+        self.device = device
+
+    def forward(self, real_images_logits, gen_images_logits):
+        batch_size = real_images_logits.shape[0] # TODO
+        valid = torch.tensor([1.]*batch_size, device=self.device, requires_grad=False, dtype=torch.float32).view(-1,1)
+        fake = torch.tensor([0.]*batch_size, device=self.device, requires_grad=False, dtype=torch.float32).view(-1,1)
+        real_loss = self.adversarial_loss(real_images_logits, valid)
+        fake_loss = self.adversarial_loss(real_images_logits, fake)
+        metadata = {
+            'real_loss': real_loss,
+            'fake_loss': fake_loss,
+        }
+        discriminator_loss =  (real_loss + fake_loss) / 2
+        return discriminator_loss, metadata
+
+        
 
 class InfillerCriterion(nn.Module):
     def __init__(self, model_type):
@@ -474,6 +498,9 @@ class InfillerRunner:
                  classifier, infiller,
                  infiller_optimizer,
                  infiller_criterion,
+                 discriminator,
+                 discriminator_optimizer,
+                 discriminator_criterion,
                  save_freq,
                  print_freq,
                  perc_of_training,
@@ -483,7 +510,10 @@ class InfillerRunner:
         self.classifier = classifier
         self.infiller = infiller
         self.infiller_optimizer = infiller_optimizer
-        self.infiller_criterion = infiller_criterion.to(device)
+        self.infiller_criterion = infiller_criterion
+        self.discriminator = discriminator
+        self.discriminator_optimizer = discriminator_optimizer
+        self.discriminator_criterion = discriminator_criterion #TODO
 
         self.perc_of_training = perc_of_training
         self.save_freq = save_freq
@@ -537,6 +567,13 @@ class InfillerRunner:
                                 'ITV(M) {lc.infiller_tv.avg:.4f} ({lc.infiller_tv.val:.4f})\n'
                                 #'IReg(M) {lc.infiller_reg.avg:.4f} ({lc.infiller_reg.val:.4f})\n'
                                 ''.format(lc=log_containers))
+
+                if self.discriminator != None:
+                    self.logger.log('DReal(M) {lc.discriminator_real_loss.avg:.4f} ({lc.discriminator_real_loss.val:.4f})\n'
+                                'DFake(M) {lc.discriminator_fake_loss.avg:.4f} ({lc.discriminator_fake_loss.val:.4f})\n'
+                                'DTotal(M) {lc.discriminator_total_loss.avg:.4f} ({lc.discriminator_total_loss.val:.4f})\n'
+                                #'IReg(M) {lc.infiller_reg.avg:.4f} ({lc.infiller_reg.val:.4f})\n'
+                                ''.format(lc=log_containers))
                 log_containers.statistics.print_out()
                 self.logger.log('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
                 if is_printlogger:
@@ -555,6 +592,8 @@ class InfillerRunner:
         # I should create FloatTensor and send to GPU and turn into cuda tensor by doing so
         dilated_boundaries = []
         for onemask in mask:
+            # TODO: findCoutours does not work when num_channels is not 1. I can just fix it to 1 and 
+            # create 3 identical copies based on one channel
             _, contours, _ = cv2.findContours(onemask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             boundary = np.zeros_like(onemask)
             cv2.drawContours(boundary, contours, -1, 1, 1)
@@ -586,6 +625,12 @@ class InfillerRunner:
         generated_layers = [l.detach() for l in generated_layers]
         infilled_layers = [l.detach() for l in infilled_layers]
 
+        #TODO
+        if self.discriminator != None:
+            gen_images_logits = self.discriminator(infilled_layers[-1], self.classifier.resnet)
+            real_images_logits = self.discriminator(layers[-1], self.classifier.resnet)
+            #print(real_images_logits, gen_images_logits)
+
         if is_train:
             infiller_total_loss, infiller_loss_metadata = self.infiller_criterion(
                 x=x, mask=mask, generated_image=generated_image, infilled_image=infilled_image,
@@ -598,6 +643,24 @@ class InfillerRunner:
             infiller_total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10)
             self.infiller_optimizer.step()
+
+
+            if self.discriminator != None:
+                #print(real_images_logits, gen_images_logits)
+                discriminator_total_loss, discriminator_loss_metadata = self.discriminator_criterion(
+                    real_images_logits=real_images_logits, 
+                    gen_images_logits=gen_images_logits
+                )
+
+                # update casme - compute gradient, do SGD step
+                self.discriminator_optimizer.zero_grad()
+                discriminator_total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), 10)
+                self.discriminator_optimizer.step()
+                log_containers.discriminator_total_loss.update(discriminator_total_loss.item(), x.size(0))
+                log_containers.discriminator_real_loss.update(discriminator_loss_metadata["real_loss"], x.size(0))
+                log_containers.discriminator_fake_loss.update(discriminator_loss_metadata['fake_loss'], x.size(0))
+    
             # TODO: print out other parts of losses
             log_containers.infiller_total_loss.update(infiller_total_loss.item(), x.size(0))
             log_containers.infiller_loss.update(infiller_loss_metadata["loss"].item(), x.size(0))
