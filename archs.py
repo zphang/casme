@@ -148,7 +148,7 @@ class Infiller(nn.Module):
         super().__init__()
         self.model_type = model_type
         self.input_channels = input_channels
-		self.num_layers = num_layers
+        self.num_layers = num_layers
         if model_type == "ciGAN":
             # do I have a mask for each category, 1 indicating salient region?
             pass
