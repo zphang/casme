@@ -50,12 +50,6 @@ class PConvUNetGEN(nn.Module):
 
         h_key = 'h_{:d}'.format(self.layer_size)
         h, h_mask = h_dict[h_key], h_mask_dict[h_key]
-        #print(h.shape)# torch.Size([10, 512, 4, 4])
-
-        # concat upsampled output of h_enc_N-1 and dec_N+1, then do dec_N
-        # (exception)
-        #                            input         dec_2            dec_1
-        #                            h_enc_7       h_enc_8          dec_8
 
         for i in range(self.layer_size, 0, -1):
             enc_h_key = 'h_{:d}'.format(i - 1)
