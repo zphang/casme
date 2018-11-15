@@ -49,6 +49,7 @@ class LogContainers:
         self.infiller_style_comp = stats.AverageMeter()
         self.infiller_tv = stats.AverageMeter()
 
+        self.generator_total_loss = stats.AverageMeter()
         self.discriminator_total_loss = stats.AverageMeter()
         self.discriminator_real_loss = stats.AverageMeter()
         self.discriminator_fake_loss = stats.AverageMeter()
@@ -73,7 +74,7 @@ def default_infill_func(x, mask, generated_image):
     # for mask, return image infilled with generated_image
     # mask = 1, non-mask = 0
     # x[mask==1] = generated_image[mask==1]
-    return x * mask + generated_image * (1 - mask)
+    return generated_image * (1 - mask) + x * mask # TODO: change the order?
     #return None
 
 class DiscriminatorCriterion(nn.Module):
@@ -84,16 +85,20 @@ class DiscriminatorCriterion(nn.Module):
 
     def forward(self, real_images_logits, gen_images_logits):
         batch_size = real_images_logits.shape[0] # TODO
+
+
         valid = torch.tensor([1.]*batch_size, device=self.device, requires_grad=False, dtype=torch.float32).view(-1,1)
         fake = torch.tensor([0.]*batch_size, device=self.device, requires_grad=False, dtype=torch.float32).view(-1,1)
+        generator_loss = self.adversarial_loss(gen_images_logits, valid)
         real_loss = self.adversarial_loss(real_images_logits, valid)
         fake_loss = self.adversarial_loss(gen_images_logits, fake)
         metadata = {
+            'generator_loss': generator_loss,
             'real_loss': real_loss,
             'fake_loss': fake_loss,
         }
         discriminator_loss =  (real_loss + fake_loss) / 2
-        return discriminator_loss, metadata
+        return generator_loss, discriminator_loss, metadata
 
         
 
@@ -119,6 +124,7 @@ class InfillerCriterion(nn.Module):
         style_out_loss = 0# self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
         style_comp_loss = 0# self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
         for i in range(3):
+            #TODO: normalize
             perceptual_loss += self.l1(layers[i], infilled_layers[i])
             style_out_loss += self.l1(gram_matrix(layers[i]), gram_matrix(generated_layers[i]))
             style_comp_loss += self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
@@ -572,6 +578,7 @@ class InfillerRunner:
                     self.logger.log('DReal(M) {lc.discriminator_real_loss.avg:.4f} ({lc.discriminator_real_loss.val:.4f})\n'
                                 'DFake(M) {lc.discriminator_fake_loss.avg:.4f} ({lc.discriminator_fake_loss.val:.4f})\n'
                                 'DTotal(M) {lc.discriminator_total_loss.avg:.4f} ({lc.discriminator_total_loss.val:.4f})\n'
+                                'GTotal(M) {lc.generator_total_loss.avg:.4f} ({lc.generator_total_loss.val:.4f})\n'
                                 #'IReg(M) {lc.infiller_reg.avg:.4f} ({lc.infiller_reg.val:.4f})\n'
                                 ''.format(lc=log_containers))
                 log_containers.statistics.print_out()
@@ -615,21 +622,16 @@ class InfillerRunner:
             infilled_image = self.infill_func(x=x, mask=mask, generated_image=generated_image)
 
         # compute classifier prediction on the original images and get inner layers
-        with torch.set_grad_enabled(False):
+        with torch.set_grad_enabled(is_train):#False):
             y_hat, layers = self.classifier(x, return_intermediate=True)
             generated_y_hat, generated_layers = self.classifier(generated_image, return_intermediate=True)
             infilled_y_hat, infilled_layers = self.classifier(infilled_image, return_intermediate=True)
 
-        # detach inner layers to make them be features for decoder
-        layers = [l.detach() for l in layers]
-        generated_layers = [l.detach() for l in generated_layers]
-        infilled_layers = [l.detach() for l in infilled_layers]
+        # TODO: decide which ones to detach
+        #layers = [l.detach() for l in layers]
+        #generated_layers = [l.detach() for l in generated_layers]
+        #infilled_layers = [l.detach() for l in infilled_layers]
 
-        #TODO
-        if self.discriminator != None:
-            gen_images_logits = self.discriminator(infilled_layers[-1], self.classifier.resnet)
-            real_images_logits = self.discriminator(layers[-1], self.classifier.resnet)
-            #print(real_images_logits, gen_images_logits)
 
         if is_train:
             infiller_total_loss, infiller_loss_metadata = self.infiller_criterion(
@@ -638,26 +640,39 @@ class InfillerRunner:
                 dilated_boundaries=dilated_boundaries
             )
 
-            # update casme - compute gradient, do SGD step
-            self.infiller_optimizer.zero_grad()
-            infiller_total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10)
-            self.infiller_optimizer.step()
+            # update infiller using pconv loss
+            if self.discriminator == None:
+                self.infiller_optimizer.zero_grad()
+                infiller_total_loss.backward(retain_graph=True)
+                torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10)
+                self.infiller_optimizer.step()
 
 
-            if self.discriminator != None:
-                #print(real_images_logits, gen_images_logits)
-                discriminator_total_loss, discriminator_loss_metadata = self.discriminator_criterion(
+            #if self.discriminator != None:
+            else:
+                with torch.set_grad_enabled(is_train):#False):
+                    gen_images_logits = self.discriminator(infilled_layers[-1], self.classifier.resnet)
+                    # TODO: Use infilled or generated images?
+                    #gen_images_logits = self.discriminator(generated_layers[-1], self.classifier.resnet)
+                    real_images_logits = self.discriminator(layers[-1], self.classifier.resnet)
+                generator_total_loss, discriminator_total_loss, discriminator_loss_metadata = self.discriminator_criterion(
                     real_images_logits=real_images_logits, 
                     gen_images_logits=gen_images_logits
                 )
 
-                # update casme - compute gradient, do SGD step
+                # update generator
+                # TODO: don't do this update step for infiller if using pconv loss function
+                self.infiller_optimizer.zero_grad() 
+                generator_total_loss.backward(retain_graph=True)
+                torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10) 
+                self.infiller_optimizer.step() 
+                # update discriminator
                 self.discriminator_optimizer.zero_grad()
                 discriminator_total_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), 10)
                 self.discriminator_optimizer.step()
                 log_containers.discriminator_total_loss.update(discriminator_total_loss.item(), x.size(0))
+                log_containers.generator_total_loss.update(generator_total_loss.item(), x.size(0))
                 log_containers.discriminator_real_loss.update(discriminator_loss_metadata["real_loss"], x.size(0))
                 log_containers.discriminator_fake_loss.update(discriminator_loss_metadata['fake_loss'], x.size(0))
     

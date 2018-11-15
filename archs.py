@@ -4,10 +4,87 @@ import torch
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 
-from pytorch_inpainting_with_partial_conv.net import PConvUNet, PConvUNetGEN
+from pytorch_inpainting_with_partial_conv.net import PConvUNet, PCBActiv
 
 import torch.nn.functional as F
 
+class PConvUNetGEN(nn.Module):
+    def __init__(self, layer_size=7, input_channels=3, upsampling_mode='nearest'):
+        super().__init__()
+        self.freeze_enc_bn = False
+        self.upsampling_mode = upsampling_mode
+        self.layer_size = layer_size
+        self.enc_1 = PCBActiv(input_channels, 64, bn=False, sample='down-7')
+        self.enc_2 = PCBActiv(64, 128, sample='down-5')
+        self.enc_3 = PCBActiv(128, 256, sample='down-5')
+        self.enc_4 = PCBActiv(256, 512, sample='down-3')
+        for i in range(4, self.layer_size):
+            name = 'enc_{:d}'.format(i + 1)
+            setattr(self, name, PCBActiv(512, 512, sample='down-3'))
+
+        for i in range(4, self.layer_size):
+            name = 'dec_{:d}'.format(i + 1)
+            if i == self.layer_size-1:
+                setattr(self, name, PCBActiv(512 + 512 + 1, 512, activ='leaky'))
+            else:
+                setattr(self, name, PCBActiv(512 + 512, 512, activ='leaky'))
+        self.dec_4 = PCBActiv(512 + 256, 256, activ='leaky')
+        self.dec_3 = PCBActiv(256 + 128, 128, activ='leaky')
+        self.dec_2 = PCBActiv(128 + 64, 64, activ='leaky')
+        self.dec_1 = PCBActiv(64 + input_channels, input_channels,
+                              bn=False, activ=None, conv_bias=True)
+
+    def forward(self, input, input_mask):
+        h_dict = {}  # for the output of enc_N
+        h_mask_dict = {}  # for the output of enc_N
+
+        h_dict['h_0'], h_mask_dict['h_0'] = input, input_mask
+
+        h_key_prev = 'h_0'
+        for i in range(1, self.layer_size + 1):
+            l_key = 'enc_{:d}'.format(i)
+            h_key = 'h_{:d}'.format(i)
+            h_dict[h_key], h_mask_dict[h_key] = getattr(self, l_key)(
+                h_dict[h_key_prev], h_mask_dict[h_key_prev])
+            h_key_prev = h_key
+
+        h_key = 'h_{:d}'.format(self.layer_size)
+        h, h_mask = h_dict[h_key], h_mask_dict[h_key]
+        #print(h.shape)# torch.Size([10, 512, 4, 4])
+
+        # concat upsampled output of h_enc_N-1 and dec_N+1, then do dec_N
+        # (exception)
+        #                            input         dec_2            dec_1
+        #                            h_enc_7       h_enc_8          dec_8
+
+        for i in range(self.layer_size, 0, -1):
+            enc_h_key = 'h_{:d}'.format(i - 1)
+            dec_l_key = 'dec_{:d}'.format(i)
+
+            h = F.interpolate(h, scale_factor=2, mode=self.upsampling_mode)
+            h_mask = F.interpolate(
+                h_mask, scale_factor=2, mode='nearest')
+            if i == self.layer_size:
+                # inserts random channel
+                random_input = torch.rand(h.size(0),1,h.size(2),h.size(3)).cuda()
+                h = torch.cat([h, h_dict[enc_h_key], random_input], dim=1)
+                h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key], torch.ones_like(random_input)], dim=1)
+            else:
+                h = torch.cat([h, h_dict[enc_h_key]], dim=1)
+                h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key]], dim=1)
+            h, h_mask = getattr(self, dec_l_key)(h, h_mask)
+
+        return h, h_mask
+
+    def train(self, mode=True):
+        """
+        Override the default train() to freeze the BN parameters
+        """
+        super().train(mode)
+        if self.freeze_enc_bn:
+            for name, module in self.named_modules():
+                if isinstance(module, nn.BatchNorm2d) and 'enc' in name:
+                    module.eval()
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -154,7 +231,7 @@ class Discriminator(nn.Module):
         h = resnet.relu(h)
         pooled_h = h.view(h.shape[0], h.shape[1], -1).mean(dim=2)
         # TODO: detach?
-        logits = self.fc1(pooled_h.detach())
+        logits = self.fc1(pooled_h)#.detach())
         #print(logits)
         if self.return_logits:
             output = logits
