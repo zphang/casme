@@ -125,9 +125,10 @@ class InfillerCriterion(nn.Module):
         style_comp_loss = 0# self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
         for i in range(3):
             #TODO: normalize
-            perceptual_loss += self.l1(layers[i], infilled_layers[i])
-            style_out_loss += self.l1(gram_matrix(layers[i]), gram_matrix(generated_layers[i]))
-            style_comp_loss += self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
+            perceptual_loss += self.l1(layers[i], infilled_layers[i]) + self.l1(layers[i], generated_layers[i])
+            style_out_loss += self.l1(gram_matrix(layers[i]), gram_matrix(generated_layers[i])) / (layers[i].shape[1] * layers[i].shape[2] * layers[i].shape[3])
+            style_comp_loss += self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i])) / (layers[i].shape[1] * layers[i].shape[2] * layers[i].shape[3])
+            #print(layers[i].shape)
 
         # TODO: Is this loss wrong? if it only backprops to generated bits... ... Try implementing my own.
         # TODO: try using total_variation_loss on dilated boundary region only... but still, incorrect boundary
@@ -641,6 +642,7 @@ class InfillerRunner:
             )
 
             # update infiller using pconv loss
+            #TODO: try using both pconv, gen, discriminator loss
             if self.discriminator == None:
                 self.infiller_optimizer.zero_grad()
                 infiller_total_loss.backward(retain_graph=True)
@@ -663,7 +665,9 @@ class InfillerRunner:
                 # update generator
                 # TODO: don't do this update step for infiller if using pconv loss function
                 self.infiller_optimizer.zero_grad() 
-                generator_total_loss.backward(retain_graph=True)
+                # TODO: Try adding both loss and backproping once
+                loss_on_infiller = generator_total_loss + infiller_total_loss
+                loss_on_infiller.backward(retain_graph=True)
                 torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10) 
                 self.infiller_optimizer.step() 
                 # update discriminator
