@@ -9,7 +9,7 @@ from pytorch_inpainting_with_partial_conv.net import PConvUNet, PCBActiv
 import torch.nn.functional as F
 
 class PConvUNetGEN(nn.Module):
-    def __init__(self, layer_size=7, input_channels=3, upsampling_mode='nearest'):
+    def __init__(self, layer_size=7, input_channels=3, upsampling_mode='nearest', infoGAN = False):
         super().__init__()
         self.freeze_enc_bn = False
         self.upsampling_mode = upsampling_mode
@@ -25,7 +25,10 @@ class PConvUNetGEN(nn.Module):
         for i in range(4, self.layer_size):
             name = 'dec_{:d}'.format(i + 1)
             if i == self.layer_size-1:
-                setattr(self, name, PCBActiv(512 + 512 + 1, 512, activ='leaky'))
+                if infoGAN:
+                    setattr(self, name, PCBActiv(512 + 512 + 4, 512, activ='leaky'))
+                else:
+                    setattr(self, name, PCBActiv(512 + 512 + 1, 512, activ='leaky'))
             else:
                 setattr(self, name, PCBActiv(512 + 512, 512, activ='leaky'))
         self.dec_4 = PCBActiv(512 + 256, 256, activ='leaky')
@@ -33,8 +36,15 @@ class PConvUNetGEN(nn.Module):
         self.dec_2 = PCBActiv(128 + 64, 64, activ='leaky')
         self.dec_1 = PCBActiv(64 + input_channels, input_channels,
                               bn=False, activ=None, conv_bias=True)
+        
+        self.infoGAN = infoGAN
+        self.emb = nn.Embedding(3, 3) 
+        self.emb.requires_grad=False
+        self.emb.weight.data = torch.eye(3)
+        self.upsample = nn.Upsample(scale_factor=2**(8 - layer_size + 1), mode='nearest') # TODO: fix, rather than using magic number 8
+        self.num_labels = 3 # TODO: fix
 
-    def forward(self, input, input_mask):
+    def forward(self, input, input_mask, labels=None):
         h_dict = {}  # for the output of enc_N
         h_mask_dict = {}  # for the output of enc_N
 
@@ -61,8 +71,16 @@ class PConvUNetGEN(nn.Module):
             if i == self.layer_size:
                 # inserts random channel
                 random_input = torch.rand(h.size(0),1,h.size(2),h.size(3)).cuda()
-                h = torch.cat([h, h_dict[enc_h_key], random_input], dim=1)
-                h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key], torch.ones_like(random_input)], dim=1)
+                if self.infoGAN:
+                    label_channels = self.emb(labels).view(labels.shape[0], self.num_labels, 1, 1)
+                    label_channels = self.upsample(label_channels)
+                    h = torch.cat([h, h_dict[enc_h_key], random_input, label_channels], dim=1)
+                    h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key], torch.ones_like(random_input), torch.ones_like(label_channels)], dim=1)
+                else:
+                    
+                    h = torch.cat([h, h_dict[enc_h_key], random_input], dim=1)
+                    h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key], torch.ones_like(random_input)], dim=1)
+                
             else:
                 h = torch.cat([h, h_dict[enc_h_key]], dim=1)
                 h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key]], dim=1)
@@ -252,15 +270,21 @@ class Infiller(nn.Module):
             self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels)
             #self.infiller = PConvUNet(layer_size=num_layers, input_channels=input_channels)
             #pass
+        elif model_type == "pconv_infogan":
+            self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels, infoGAN=True)
+            #self.infiller = PConvUNet(layer_size=num_layers, input_channels=input_channels)
+            #pass
         else:
             raise NotImplementedError()
 
-    def forward(self, x, mask):
+    def forward(self, x, mask, labels=None):
         if self.model_type == "ciGAN":
             pass
         #elif self.model_type == "pconv":
         elif self.model_type in ["pconv", "pconv_gan"]:
             return self.model(x, mask)
+        elif self.model_type == "pconv_infogan":
+            return self.model(x, mask, labels)
         #elif self.model_type == "pconv_gan":
         #    pass
         else:

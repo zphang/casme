@@ -619,7 +619,10 @@ class InfillerRunner:
 
         with torch.set_grad_enabled(is_train):
             # compute mask and masked input
-            generated_image, generated_mask = self.infiller(masked_x, mask)
+            if self.infiller.model_type == 'pconv_infogan':
+                generated_image, generated_mask = self.infiller(masked_x, mask, y)
+            else:
+                generated_image, generated_mask = self.infiller(masked_x, mask)
             infilled_image = self.infill_func(x=x, mask=mask, generated_image=generated_image)
 
         # compute classifier prediction on the original images and get inner layers
