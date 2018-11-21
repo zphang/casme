@@ -103,13 +103,14 @@ class DiscriminatorCriterion(nn.Module):
         
 
 class InfillerCriterion(nn.Module):
-    def __init__(self, model_type):
+    def __init__(self, model_type, style_loss_multiplier):
         super().__init__()
         self.l1 = nn.L1Loss()
         # TODO: take mask function as parameters
         # TODO: take model hyperparameters (how many layers to use fur perceptual loss, loss mutlipliers)
         # TODO: use different criterion depending on models
         self.model_type = model_type
+        self.style_loss_multiplier = style_loss_multiplier
 
     def forward(self, x, mask, generated_image, infilled_image, layers, generated_layers, infilled_layers, dilated_boundaries):
         # x here is ground-truth
@@ -134,7 +135,7 @@ class InfillerCriterion(nn.Module):
         # TODO: try using total_variation_loss on dilated boundary region only... but still, incorrect boundary
         tv = total_variation_loss(apply_inverted_mask_func(infilled_image, dilated_boundaries))
         regularization = 0
-        loss = 6 * hole + valid + 0.05 * perceptual_loss + 120*(style_out_loss+style_comp_loss) + 0.1*tv
+        loss = 6 * hole + valid + 0.05 * perceptual_loss + self.style_loss_multiplier*(style_out_loss+style_comp_loss) + 0.1*tv
         infiller_loss = loss + regularization
         metadata = {
             "hole": hole,
