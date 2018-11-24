@@ -91,6 +91,7 @@ def main():
     infiller = archs.Infiller(
         model_type=args.infiller_model,
         input_channels=3,
+        num_layers=4,
     ).to(device)
     infiller_optimizer = torch.optim.Adam(
         infiller.parameters(), lr=args.lr,

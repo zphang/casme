@@ -3,9 +3,100 @@ import math
 import torch
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
+import torch.nn.functional as F
 
-from .ext.pytorch_inpainting_with_partial_conv import PConvUNet
+from .ext.pytorch_inpainting_with_partial_conv import PConvUNet, PCBActiv
 
+
+class PConvUNetGEN(nn.Module):
+    def __init__(self, layer_size=7, input_channels=3, upsampling_mode='nearest', infoGAN = False):
+        super().__init__()
+        self.freeze_enc_bn = False
+        self.upsampling_mode = upsampling_mode
+        self.layer_size = layer_size
+        self.enc_1 = PCBActiv(input_channels, 64, bn=False, sample='down-7')
+        self.enc_2 = PCBActiv(64, 128, sample='down-5')
+        self.enc_3 = PCBActiv(128, 256, sample='down-5')
+        self.enc_4 = PCBActiv(256, 512, sample='down-3')
+        for i in range(4, self.layer_size):
+            name = 'enc_{:d}'.format(i + 1)
+            setattr(self, name, PCBActiv(512, 512, sample='down-3'))
+
+        for i in range(4, self.layer_size):
+            name = 'dec_{:d}'.format(i + 1)
+            if i == self.layer_size-1:
+                if infoGAN:
+                    setattr(self, name, PCBActiv(512 + 512 + 4, 512, activ='leaky'))
+                else:
+                    setattr(self, name, PCBActiv(512 + 512 + 1, 512, activ='leaky'))
+            else:
+                setattr(self, name, PCBActiv(512 + 512, 512, activ='leaky'))
+        self.dec_4 = PCBActiv(512 + 256, 256, activ='leaky')
+        self.dec_3 = PCBActiv(256 + 128, 128, activ='leaky')
+        self.dec_2 = PCBActiv(128 + 64, 64, activ='leaky')
+        self.dec_1 = PCBActiv(64 + input_channels, input_channels,
+                              bn=False, activ=None, conv_bias=True)
+        
+        self.infoGAN = infoGAN
+        self.emb = nn.Embedding(3, 3) 
+        self.emb.requires_grad=False
+        self.emb.weight.data = torch.eye(3)
+        self.upsample = nn.Upsample(scale_factor=2**(8 - layer_size + 1), mode='nearest') # TODO: fix, rather than using magic number 8
+        self.num_labels = 3 # TODO: fix
+
+    def forward(self, input, input_mask, labels=None):
+        h_dict = {}  # for the output of enc_N
+        h_mask_dict = {}  # for the output of enc_N
+
+        h_dict['h_0'], h_mask_dict['h_0'] = input, input_mask
+
+        h_key_prev = 'h_0'
+        for i in range(1, self.layer_size + 1):
+            l_key = 'enc_{:d}'.format(i)
+            h_key = 'h_{:d}'.format(i)
+            h_dict[h_key], h_mask_dict[h_key] = getattr(self, l_key)(
+                h_dict[h_key_prev], h_mask_dict[h_key_prev])
+            h_key_prev = h_key
+
+        h_key = 'h_{:d}'.format(self.layer_size)
+        h, h_mask = h_dict[h_key], h_mask_dict[h_key]
+
+        for i in range(self.layer_size, 0, -1):
+            enc_h_key = 'h_{:d}'.format(i - 1)
+            dec_l_key = 'dec_{:d}'.format(i)
+
+            h = F.interpolate(h, scale_factor=2, mode=self.upsampling_mode)
+            h_mask = F.interpolate(
+                h_mask, scale_factor=2, mode='nearest')
+            if i == self.layer_size:
+                # inserts random channel
+                random_input = torch.rand(h.size(0),1,h.size(2),h.size(3)).cuda()
+                if self.infoGAN:
+                    label_channels = self.emb(labels).view(labels.shape[0], self.num_labels, 1, 1)
+                    label_channels = self.upsample(label_channels)
+                    h = torch.cat([h, h_dict[enc_h_key], random_input, label_channels], dim=1)
+                    h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key], torch.ones_like(random_input), torch.ones_like(label_channels)], dim=1)
+                else:
+                    
+                    h = torch.cat([h, h_dict[enc_h_key], random_input], dim=1)
+                    h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key], torch.ones_like(random_input)], dim=1)
+                
+            else:
+                h = torch.cat([h, h_dict[enc_h_key]], dim=1)
+                h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key]], dim=1)
+            h, h_mask = getattr(self, dec_l_key)(h, h_mask)
+
+        return h, h_mask
+
+    def train(self, mode=True):
+        """
+        Override the default train() to freeze the BN parameters
+        """
+        super().train(mode)
+        if self.freeze_enc_bn:
+            for name, module in self.named_modules():
+                if isinstance(module, nn.BatchNorm2d) and 'enc' in name:
+                    module.eval()
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -141,30 +232,61 @@ def resnet50shared(pretrained=False, **kwargs):
         model.load_state_dict(model_zoo.load_url('https://download.pytorch.org/models/resnet50-19c8e357.pth'))
     return model
 
+class Discriminator(nn.Module):
+    def __init__(self, input_dim, return_logits=False):
+        super().__init__()
+        self.fc1 = nn.Linear(input_dim, 1)
+        self.return_logits = return_logits
+
+    def forward(self, h, resnet):
+        h = resnet.final_bn(h)
+        h = resnet.relu(h)
+        pooled_h = h.view(h.shape[0], h.shape[1], -1).mean(dim=2)
+        # TODO: detach?
+        logits = self.fc1(pooled_h)#.detach())
+        #print(logits)
+        if self.return_logits:
+            output = logits
+        else:
+            output = F.log_softmax(logits, dim=1)
+        return output
+
+
+
 
 class Infiller(nn.Module):
 
-    def __init__(self, model_type, input_channels):
+    def __init__(self, model_type, input_channels, num_layers=6):
         super().__init__()
         self.model_type = model_type
         self.input_channels = input_channels
+        self.num_layers = num_layers
         if model_type == "ciGAN":
             # do I have a mask for each category, 1 indicating salient region?
             pass
-        elif model_type == "pconv":
-            self.model = PConvUNet(layer_size=6, input_channels=input_channels)
+        elif model_type =="pconv":
+            self.model = PConvUNet(layer_size=num_layers, input_channels=input_channels)
         elif model_type == "pconv_gan":
-            pass
+            self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels)
+            #self.infiller = PConvUNet(layer_size=num_layers, input_channels=input_channels)
+            #pass
+        elif model_type == "pconv_infogan":
+            self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels, infoGAN=True)
+            #self.infiller = PConvUNet(layer_size=num_layers, input_channels=input_channels)
+            #pass
         else:
             raise NotImplementedError()
 
-    def forward(self, x, mask):
+    def forward(self, x, mask, labels=None):
         if self.model_type == "ciGAN":
             pass
-        elif self.model_type == "pconv":
+        #elif self.model_type == "pconv":
+        elif self.model_type in ["pconv", "pconv_gan"]:
             return self.model(x, mask)
-        elif self.model_type == "pconv_gan":
-            pass
+        elif self.model_type == "pconv_infogan":
+            return self.model(x, mask, labels)
+        #elif self.model_type == "pconv_gan":
+        #    pass
         else:
             raise NotImplementedError()
 
