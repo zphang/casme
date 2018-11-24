@@ -30,12 +30,12 @@ def default_infill_func(x, mask, generated_image):
     # for mask, return image infilled with generated_image
     # mask = 1, non-mask = 0
     # x[mask==1] = generated_image[mask==1]
-    return x * mask + generated_image * (1 - mask)
-    # return None
+    return generated_image * (1 - mask) + x * mask # TODO: change the order?
+    #return None
 
 
 class InfillerCriterion(nn.Module):
-    def __init__(self, model_type):
+    def __init__(self, model_type, style_loss_multiplier):
         super().__init__()
         self.l1 = nn.L1Loss()
         # TODO: take mask function as parameters
@@ -65,7 +65,7 @@ class InfillerCriterion(nn.Module):
         # TODO: try using total_variation_loss on dilated boundary region only... but still, incorrect boundary
         tv = total_variation_loss(apply_inverted_mask_func(infilled_image, dilated_boundaries))
         regularization = 0
-        loss = 6 * hole + valid + 0.05 * perceptual_loss + 120*(style_out_loss+style_comp_loss) + 0.1*tv
+        loss = 6 * hole + valid + 0.05 * perceptual_loss + self.style_loss_multiplier*(style_out_loss+style_comp_loss) + 0.1*tv
         infiller_loss = loss + regularization
         metadata = {
             "hole": hole,
@@ -344,3 +344,27 @@ class MaskerInfillerPriorCriterion(nn.Module):
             "regularization": regularization,
         }
         return masker_loss, metadata
+
+
+class DiscriminatorCriterion(nn.Module):
+    def __init__(self, device):
+        super().__init__()
+        self.adversarial_loss = torch.nn.BCEWithLogitsLoss()
+        self.device = device
+
+    def forward(self, real_images_logits, gen_images_logits):
+        batch_size = real_images_logits.shape[0]  # TODO
+
+        valid = torch.tensor([1.] * batch_size, device=self.device, requires_grad=False, dtype=torch.float32).view(-1,
+                                                                                                                   1)
+        fake = torch.tensor([0.] * batch_size, device=self.device, requires_grad=False, dtype=torch.float32).view(-1, 1)
+        generator_loss = self.adversarial_loss(gen_images_logits, valid)
+        real_loss = self.adversarial_loss(real_images_logits, valid)
+        fake_loss = self.adversarial_loss(gen_images_logits, fake)
+        metadata = {
+            'generator_loss': generator_loss,
+            'real_loss': real_loss,
+            'fake_loss': fake_loss,
+        }
+        discriminator_loss = (real_loss + fake_loss) / 2
+        return generator_loss, discriminator_loss, metadata

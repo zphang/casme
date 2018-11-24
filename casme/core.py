@@ -222,6 +222,9 @@ class InfillerRunner(_BaseRunner):
                  classifier, infiller,
                  infiller_optimizer,
                  infiller_criterion,
+                 discriminator,
+                 discriminator_optimizer,
+                 discriminator_criterion,
                  save_freq,
                  print_freq,
                  perc_of_training,
@@ -231,7 +234,10 @@ class InfillerRunner(_BaseRunner):
         self.classifier = classifier
         self.infiller = infiller
         self.infiller_optimizer = infiller_optimizer
-        self.infiller_criterion = infiller_criterion.to(device)
+        self.infiller_criterion = infiller_criterion
+        self.discriminator = discriminator
+        self.discriminator_optimizer = discriminator_optimizer
+        self.discriminator_criterion = discriminator_criterion #TODO
 
         self.perc_of_training = perc_of_training
         self.save_freq = save_freq
@@ -283,7 +289,15 @@ class InfillerRunner(_BaseRunner):
                                 'IStyleOut(M) {lc.infiller_style_out.avg:.4f} ({lc.infiller_style_out.val:.4f})\n'
                                 'IStyleComp(M) {lc.infiller_style_comp.avg:.4f} ({lc.infiller_style_comp.val:.4f})\n'
                                 'ITV(M) {lc.infiller_tv.avg:.4f} ({lc.infiller_tv.val:.4f})\n'
-                                # 'IReg(M) {lc.infiller_reg.avg:.4f} ({lc.infiller_reg.val:.4f})\n'
+                                #'IReg(M) {lc.infiller_reg.avg:.4f} ({lc.infiller_reg.val:.4f})\n'
+                                ''.format(lc=log_containers))
+
+                if self.discriminator != None:
+                    self.logger.log('DReal(M) {lc.discriminator_real_loss.avg:.4f} ({lc.discriminator_real_loss.val:.4f})\n'
+                                'DFake(M) {lc.discriminator_fake_loss.avg:.4f} ({lc.discriminator_fake_loss.val:.4f})\n'
+                                'DTotal(M) {lc.discriminator_total_loss.avg:.4f} ({lc.discriminator_total_loss.val:.4f})\n'
+                                'GTotal(M) {lc.generator_total_loss.avg:.4f} ({lc.generator_total_loss.val:.4f})\n'
+                                #'IReg(M) {lc.infiller_reg.avg:.4f} ({lc.infiller_reg.val:.4f})\n'
                                 ''.format(lc=log_containers))
                 log_containers.statistics.print_out()
                 self.logger.log('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
@@ -318,19 +332,23 @@ class InfillerRunner(_BaseRunner):
 
         with torch.set_grad_enabled(is_train):
             # compute mask and masked input
-            generated_image, generated_mask = self.infiller(masked_x, mask)
+            if self.infiller.model_type == 'pconv_infogan':
+                generated_image, generated_mask = self.infiller(masked_x, mask, y)
+            else:
+                generated_image, generated_mask = self.infiller(masked_x, mask)
             infilled_image = self.infill_func(x=x, mask=mask, generated_image=generated_image)
 
         # compute classifier prediction on the original images and get inner layers
-        with torch.set_grad_enabled(False):
+        with torch.set_grad_enabled(is_train):#False):
             y_hat, layers = self.classifier(x, return_intermediate=True)
             generated_y_hat, generated_layers = self.classifier(generated_image, return_intermediate=True)
             infilled_y_hat, infilled_layers = self.classifier(infilled_image, return_intermediate=True)
 
-        # detach inner layers to make them be features for decoder
-        layers = [l.detach() for l in layers]
-        generated_layers = [l.detach() for l in generated_layers]
-        infilled_layers = [l.detach() for l in infilled_layers]
+        # TODO: decide which ones to detach
+        #layers = [l.detach() for l in layers]
+        #generated_layers = [l.detach() for l in generated_layers]
+        #infilled_layers = [l.detach() for l in infilled_layers]
+
 
         if is_train:
             infiller_total_loss, infiller_loss_metadata = self.infiller_criterion(
@@ -339,11 +357,45 @@ class InfillerRunner(_BaseRunner):
                 dilated_boundaries=dilated_boundaries
             )
 
-            # update casme - compute gradient, do SGD step
-            self.infiller_optimizer.zero_grad()
-            infiller_total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10)
-            self.infiller_optimizer.step()
+            # update infiller using pconv loss
+            #TODO: try using both pconv, gen, discriminator loss
+            if self.discriminator == None:
+                self.infiller_optimizer.zero_grad()
+                infiller_total_loss.backward(retain_graph=True)
+                torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10)
+                self.infiller_optimizer.step()
+
+
+            #if self.discriminator != None:
+            else:
+                with torch.set_grad_enabled(is_train):#False):
+                    gen_images_logits = self.discriminator(infilled_layers[-1], self.classifier.resnet)
+                    # TODO: Use infilled or generated images?
+                    #gen_images_logits = self.discriminator(generated_layers[-1], self.classifier.resnet)
+                    real_images_logits = self.discriminator(layers[-1], self.classifier.resnet)
+                generator_total_loss, discriminator_total_loss, discriminator_loss_metadata = self.discriminator_criterion(
+                    real_images_logits=real_images_logits,
+                    gen_images_logits=gen_images_logits
+                )
+
+                # update generator
+                # TODO: don't do this update step for infiller if using pconv loss function
+                self.infiller_optimizer.zero_grad()
+                # TODO: Try adding both loss and backproping once
+                loss_on_infiller = generator_total_loss + infiller_total_loss
+                loss_on_infiller.backward(retain_graph=True)
+                torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10)
+                self.infiller_optimizer.step()
+                # update discriminator
+                self.discriminator_optimizer.zero_grad()
+                discriminator_total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), 10)
+                self.discriminator_optimizer.step()
+                log_containers.discriminator_total_loss.update(discriminator_total_loss.item(), x.size(0))
+                log_containers.generator_total_loss.update(generator_total_loss.item(), x.size(0))
+                log_containers.discriminator_real_loss.update(discriminator_loss_metadata["real_loss"], x.size(0))
+                log_containers.discriminator_fake_loss.update(discriminator_loss_metadata['fake_loss'], x.size(0))
+
             # TODO: print out other parts of losses
             log_containers.infiller_total_loss.update(infiller_total_loss.item(), x.size(0))
             log_containers.infiller_loss.update(infiller_loss_metadata["loss"].item(), x.size(0))
