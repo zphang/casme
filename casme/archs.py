@@ -252,8 +252,6 @@ class Discriminator(nn.Module):
         return output
 
 
-
-
 class Infiller(nn.Module):
 
     def __init__(self, model_type, input_channels, num_layers=6):
