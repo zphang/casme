@@ -380,7 +380,7 @@ class InfillerCASMERunner(_BaseRunner):
                  apply_mask_func=criterion.default_apply_mask_func,
                  ):
         self.classifier = classifier
-        self.classifier_for_mask = None
+        self.classifier_for_modified = None
         self.masker = masker
         self.infiller = infiller
         self.classifier_optimizer = classifier_optimizer
@@ -496,8 +496,8 @@ class InfillerCASMERunner(_BaseRunner):
             # compute mask and masked input
             mask = self.masker(layers, use_p=use_p)
             masked_x = self.apply_mask_func(x=x, mask=mask)
-            generated_x, generated_mask = self.infiller(masked_x, mask)
-            modified_x = self.infill_func(x=x, mask=mask, generated_image=generated_x)
+            generated_x, _ = self.infiller(masked_x, 1-mask)
+            modified_x = self.infill_func(x=masked_x, mask=1-mask, generated_image=generated_x)
 
             # update statistics
             log_containers.statistics.update(mask)
@@ -507,12 +507,12 @@ class InfillerCASMERunner(_BaseRunner):
                 y_hat_from_modified_x = self.classifier(modified_x)
                 update_classifier = not self.fixed_classifier
             else:
-                if self.classifier_for_mask is None:
-                    self.classifier_for_mask = copy.deepcopy(self.classifier)
+                if self.classifier_for_modified is None:
+                    self.classifier_for_modified = copy.deepcopy(self.classifier)
                 index = random.randint(0, len(self.classifier_zoo) - 1)
-                self.classifier_for_mask.load_state_dict(self.classifier_zoo[index])
-                self.classifier_for_mask.eval()
-                y_hat_from_modified_x = self.classifier_for_mask(masked_x)
+                self.classifier_for_modified.load_state_dict(self.classifier_zoo[index])
+                self.classifier_for_modified.eval()
+                y_hat_from_modified_x = self.classifier_for_modified(modified_x)
                 update_classifier = False
 
             classifier_loss_from_modified_x = self.classifier_criterion(y_hat_from_modified_x, y)
@@ -531,7 +531,7 @@ class InfillerCASMERunner(_BaseRunner):
 
             masker_total_loss, masker_loss_metadata = self.masker_infiller_criterion(
                 mask=mask, modified_x=modified_x, y_hat=y_hat,
-                y_hat_from_modified_x=classifier_loss_from_modified_x, y=y,
+                y_hat_from_modified_x=y_hat_from_modified_x, y=y,
                 classifier_loss_from_modified_x=classifier_loss_from_modified_x, use_p=use_p,
             )
 
