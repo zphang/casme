@@ -90,12 +90,18 @@ class StatisticsContainer:
             )
             self.tv.update(tv.item(), mask.size(0))
 
+    def str_out(self):
+        return (
+            'TV (x100)   {tv_avg:.3f} ({tv_val:.3f})\t'
+            'AvgMask {a.avg:.3f} ({a.val:.3f})\n'
+            'EntropyMask {e.avg:.3f} ({e.val:.3f})\t'
+            'StdMask {s.avg:.3f} ({s.val:.3f})'.format(
+                a=self.avg, s=self.std, e=self.entropy, tv_avg=100*self.tv.avg,
+                tv_val=100*self.tv.val
+            ))
+
     def print_out(self):
-        print('TV (x100)   {tv_avg:.3f} ({tv_val:.3f})\t'
-              'AvgMask {a.avg:.3f} ({a.val:.3f})\n'
-              'EntropyMask {e.avg:.3f} ({e.val:.3f})\t'
-              'StdMask {s.avg:.3f} ({s.val:.3f})'.format(
-                  a=self.avg, s=self.std, e=self.entropy, tv_avg=100*self.tv.avg, tv_val=100*self.tv.val), flush=True)
+        print(self.str_out(), flush=True)
 
     def get_dictionary(self):
         return {

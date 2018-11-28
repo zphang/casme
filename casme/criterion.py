@@ -65,7 +65,13 @@ class InfillerCriterion(nn.Module):
         # TODO: try using total_variation_loss on dilated boundary region only... but still, incorrect boundary
         tv = total_variation_loss(apply_inverted_mask_func(infilled_image, dilated_boundaries))
         regularization = 0
-        loss = 6 * hole + valid + 0.05 * perceptual_loss + self.style_loss_multiplier*(style_out_loss+style_comp_loss) + 0.1*tv
+        loss = (
+            6 * hole
+            + valid
+            + 0.05 * perceptual_loss
+            + self.style_loss_multiplier*(style_out_loss+style_comp_loss)
+            + 0.1 * tv
+        )
         infiller_loss = loss + regularization
         metadata = {
             "hole": hole,

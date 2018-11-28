@@ -39,7 +39,7 @@ class PConvUNetGEN(nn.Module):
         
         self.infoGAN = infoGAN
         self.emb = nn.Embedding(3, 3) 
-        self.emb.requires_grad=False
+        self.emb.requires_grad = False
         self.emb.weight.data = torch.eye(3)
         self.upsample = nn.Upsample(scale_factor=2**(8 - layer_size + 1), mode='nearest') # TODO: fix, rather than using magic number 8
         self.num_labels = 3 # TODO: fix

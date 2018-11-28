@@ -4,6 +4,7 @@ import datetime as dt
 import numpy as np
 import random
 import scipy.ndimage
+import sys
 import torch
 
 from . import log_container
@@ -13,8 +14,15 @@ from .ext.pconv_keras import random_mask
 
 
 class PrintLogger:
-    def log(self, *args, **kwargs):
-        print(*args, **kwargs)
+	def log(self, string_to_log="", log_log=True, print_log=True, no_enter=False):
+		sep = "" if no_enter else "\n"
+		print(string_to_log, sep=sep)
+
+	def flush(self):
+		sys.stdout.flush()
+
+	def close(self):
+		pass
 
 
 class _BaseRunner:
@@ -79,9 +87,9 @@ class CASMERunner(_BaseRunner):
             if i % self.print_freq == 0:
                 if is_train:
                     self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
-                        epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), end='')
+                        epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), no_enter=True)
                 else:
-                    self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), end='')
+                    self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), no_enter=True)
                 self.logger.log('Time {lc.batch_time.avg:.3f} ({lc.batch_time.val:.3f})\t'
                                 'Data {lc.data_time.avg:.3f} ({lc.data_time.val:.3f})\n'
                                 'Loss(C) {lc.losses.avg:.4f} ({lc.losses.val:.4f})\t'
@@ -136,7 +144,7 @@ class CASMERunner(_BaseRunner):
             # save classifier (needed only if previous iterations are used i.e. args.hp > 0)
             if self.prob_historic > 0 \
                     and ((i % self.save_freq == -1 % self.save_freq) or len(self.classifier_zoo) < 1):
-                self.logger.log('Current iteration is saving, will be used in the future. ', end='', flush=True)
+                self.logger.log('Current iteration is saving, will be used in the future. ', no_enter=True)
                 if len(self.classifier_zoo) < self.zoo_size:
                     index = len(self.classifier_zoo)
                 else:
@@ -145,7 +153,7 @@ class CASMERunner(_BaseRunner):
                 self.classifier_zoo[index] = {}
                 for p in state_dict:
                     self.classifier_zoo[index][p] = state_dict[p].cpu()
-                self.logger.log('There are {0} iterations stored.'.format(len(self.classifier_zoo)), flush=True)
+                self.logger.log('There are {0} iterations stored.'.format(len(self.classifier_zoo)))
 
         # detach inner layers to make them be features for decoder
         layers = [l.detach() for l in layers]
@@ -269,13 +277,13 @@ class InfillerRunner(_BaseRunner):
                 if is_train:
                     if is_printlogger:
                         self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
-                            epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), end='')
+                            epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), no_enter=True)
                     else:
                         self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
                             epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)))
                 else:
                     if is_printlogger:
-                        self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), end='')
+                        self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), no_enter=True)
                     else:
                         self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)))
                 # TODO: print out other parts of losses
@@ -349,7 +357,6 @@ class InfillerRunner(_BaseRunner):
         #generated_layers = [l.detach() for l in generated_layers]
         #infilled_layers = [l.detach() for l in infilled_layers]
 
-
         if is_train:
             infiller_total_loss, infiller_loss_metadata = self.infiller_criterion(
                 x=x, mask=mask, generated_image=generated_image, infilled_image=infilled_image,
@@ -359,12 +366,11 @@ class InfillerRunner(_BaseRunner):
 
             # update infiller using pconv loss
             #TODO: try using both pconv, gen, discriminator loss
-            if self.discriminator == None:
+            if self.discriminator is None:
                 self.infiller_optimizer.zero_grad()
                 infiller_total_loss.backward(retain_graph=True)
                 torch.nn.utils.clip_grad_norm_(self.infiller.parameters(), 10)
                 self.infiller_optimizer.step()
-
 
             #if self.discriminator != None:
             else:
@@ -373,10 +379,11 @@ class InfillerRunner(_BaseRunner):
                     # TODO: Use infilled or generated images?
                     #gen_images_logits = self.discriminator(generated_layers[-1], self.classifier.resnet)
                     real_images_logits = self.discriminator(layers[-1], self.classifier.resnet)
-                generator_total_loss, discriminator_total_loss, discriminator_loss_metadata = self.discriminator_criterion(
-                    real_images_logits=real_images_logits,
-                    gen_images_logits=gen_images_logits
-                )
+                generator_total_loss, discriminator_total_loss, discriminator_loss_metadata = \
+                    self.discriminator_criterion(
+                        real_images_logits=real_images_logits,
+                        gen_images_logits=gen_images_logits
+                    )
 
                 # update generator
                 # TODO: don't do this update step for infiller if using pconv loss function
@@ -473,9 +480,9 @@ class InfillerCASMERunner(_BaseRunner):
             if i % self.print_freq == 0:
                 if is_train:
                     self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
-                        epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), end='')
+                        epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), no_enter=True)
                 else:
-                    self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), end='')
+                    self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), no_enter=True)
                 self.logger.log('Time {lc.batch_time.avg:.3f} ({lc.batch_time.val:.3f})\t'
                                 'Data {lc.data_time.avg:.3f} ({lc.data_time.val:.3f})\n'
                                 'Loss(C) {lc.losses.avg:.4f} ({lc.losses.val:.4f})\t'
@@ -483,19 +490,19 @@ class InfillerCASMERunner(_BaseRunner):
                                 'Loss(M) {lc.losses_m.avg:.4f} ({lc.losses_m.val:.4f})\t'
                                 'Prec@1(M) {lc.acc_m.avg:.3f} ({lc.acc_m.val:.3f})\n'
                                 'MTLoss(M) {lc.masker_total_loss.avg:.4f} ({lc.masker_total_loss.val:.4f})\t'
-                                'MLoss(M) {lc.masker_loss.avg:.4f} ({lc.masker_loss.val:.4f})\t'
+                                'MLoss(M) {lc.masker_loss.avg:.8f} ({lc.masker_loss.val:.8f})\t'
                                 'MReg(M) {lc.masker_reg.avg:.4f} ({lc.masker_reg.val:.4f})\n'
                                 'CoC {lc.correct_on_clean.avg:.3f} ({lc.correct_on_clean.val:.3f})\t'
                                 'MoM {lc.mistaken_on_masked.avg:.3f} ({lc.mistaken_on_masked.val:.3f})\t'
                                 'NC {lc.nontrivially_confused.avg:.3f} ({lc.nontrivially_confused.val:.3f})\t'
                                 ''.format(lc=log_containers))
-                log_containers.statistics.print_out()
+                self.logger.log(log_containers.statistics.str_out())
                 self.logger.log('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
                 self.logger.log()
 
         if not is_train:
             self.logger.log(' * Prec@1 {lc.acc.avg:.3f} Prec@1(M) {lc.acc_m.avg:.3f} '.format(lc=log_containers))
-            log_containers.statistics.print_out()
+            self.logger.log(log_containers.statistics.str_out())
 
         return {
             'acc': str(log_containers.acc.avg),
@@ -530,7 +537,7 @@ class InfillerCASMERunner(_BaseRunner):
             # save classifier (needed only if previous iterations are used i.e. args.hp > 0)
             if self.prob_historic > 0 \
                     and ((i % self.save_freq == -1 % self.save_freq) or len(self.classifier_zoo) < 1):
-                self.logger.log('Current iteration is saving, will be used in the future. ', end='', flush=True)
+                self.logger.log('Current iteration is saving, will be used in the future. ', no_enter=True)
                 if len(self.classifier_zoo) < self.zoo_size:
                     index = len(self.classifier_zoo)
                 else:
@@ -539,7 +546,7 @@ class InfillerCASMERunner(_BaseRunner):
                 self.classifier_zoo[index] = {}
                 for p in state_dict:
                     self.classifier_zoo[index][p] = state_dict[p].cpu()
-                self.logger.log('There are {0} iterations stored.'.format(len(self.classifier_zoo)), flush=True)
+                self.logger.log('There are {0} iterations stored.'.format(len(self.classifier_zoo)))
 
         # detach inner layers to make them be features for decoder
         layers = [l.detach() for l in layers]
@@ -656,13 +663,13 @@ class GANRunner(_BaseRunner):
                 if is_train:
                     if is_printlogger:
                         self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
-                            epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), end='')
+                            epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), no_enter=True)
                     else:
                         self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
                             epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)))
                 else:
                     if is_printlogger:
-                        self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), end='')
+                        self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), no_enter=True)
                     else:
                         self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)))
                 # TODO: print out other parts of losses
