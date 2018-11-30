@@ -39,7 +39,7 @@ class GANLogContainers:
         self.data_time = stats.TimeMeter()
         self.statistics = stats.StatisticsContainer()
 
-        self.d_loss_real = stats.AverageMeter()
-        self.d_loss_fake = stats.AverageMeter()
-        self.d_loss = stats.AverageMeter()
-        self.i_loss = stats.AverageMeter()
+        self.d_loss_real = stats.HistoricalMeter()
+        self.d_loss_fake = stats.HistoricalMeter()
+        self.d_loss = stats.HistoricalMeter()
+        self.i_loss = stats.HistoricalMeter()

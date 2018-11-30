@@ -20,7 +20,7 @@ def accuracy(output, target, topk=(1,)):
 
 
 def adjust_learning_rate(classifier_optimizer, masker_optimizer, epoch, lr, lr_casme, lrde):
-    print("DEPRECATED")
+    print("DEPRECATED (adjust_learning_rate)")
     single_adjust_learning_rate(classifier_optimizer, epoch, lr, lrde)
     single_adjust_learning_rate(masker_optimizer, epoch, lr_casme, lrde)
 

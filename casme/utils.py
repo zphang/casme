@@ -47,3 +47,11 @@ def permute_image(image_tensor, mul255 = False):
             image = image.byte()
 
         return image.numpy()
+
+
+def per_image_normalization(x):
+    assert len(x.shape) == 4
+    x_max = x.view(x.shape[0], -1).max(1)[0].view(-1, 1, 1, 1) + 1e-6
+    x_min = x.view(x.shape[0], -1).min(1)[0].view(-1, 1, 1, 1)
+    normalized_x = (x - x_min) / (x_max - x_min).view(-1, 1, 1, 1) * 2 - 1
+    return normalized_x

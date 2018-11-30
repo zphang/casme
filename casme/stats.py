@@ -110,3 +110,27 @@ class StatisticsContainer:
             'entropy': str(self.entropy.avg),
             'tv': str(self.tv.avg)
         }
+
+
+class HistoricalMeter:
+    def __init__(self):
+        self.val = None
+        self.avg = None
+        self.sum = None
+        self.count = None
+        self.history = None
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+        self.history = []
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+        self.history.append(val)

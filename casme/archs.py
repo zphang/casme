@@ -9,7 +9,8 @@ from .ext.pytorch_inpainting_with_partial_conv import PConvUNet, PCBActiv
 
 
 class PConvUNetGEN(nn.Module):
-    def __init__(self, layer_size=7, input_channels=3, upsampling_mode='nearest', infoGAN = False):
+    def __init__(self, layer_size=7, input_channels=3, upsampling_mode='nearest', infoGAN=False,
+                 final_activation=None):
         super().__init__()
         self.freeze_enc_bn = False
         self.upsampling_mode = upsampling_mode
@@ -44,11 +45,15 @@ class PConvUNetGEN(nn.Module):
         self.upsample = nn.Upsample(scale_factor=2**(8 - layer_size + 1), mode='nearest') # TODO: fix, rather than using magic number 8
         self.num_labels = 3 # TODO: fix
 
+        self.final_activation = final_activation
+
     def forward(self, input, input_mask, labels=None):
         h_dict = {}  # for the output of enc_N
         h_mask_dict = {}  # for the output of enc_N
 
         h_dict['h_0'], h_mask_dict['h_0'] = input, input_mask
+        import collections as col
+        zstorage = col.OrderedDict()
 
         h_key_prev = 'h_0'
         for i in range(1, self.layer_size + 1):
@@ -57,6 +62,9 @@ class PConvUNetGEN(nn.Module):
             h_dict[h_key], h_mask_dict[h_key] = getattr(self, l_key)(
                 h_dict[h_key_prev], h_mask_dict[h_key_prev])
             h_key_prev = h_key
+            # print(h_key, tuple(h_dict[h_key].shape))
+            zstorage["A_h_"+h_key] = h_dict[h_key]
+            zstorage["A_m_" + h_key] = h_mask_dict[h_key]
 
         h_key = 'h_{:d}'.format(self.layer_size)
         h, h_mask = h_dict[h_key], h_mask_dict[h_key]
@@ -66,8 +74,9 @@ class PConvUNetGEN(nn.Module):
             dec_l_key = 'dec_{:d}'.format(i)
 
             h = F.interpolate(h, scale_factor=2, mode=self.upsampling_mode)
-            h_mask = F.interpolate(
-                h_mask, scale_factor=2, mode='nearest')
+            h_mask = F.interpolate(h_mask, scale_factor=2, mode='nearest')
+            zstorage["B_h_{}".format(i)] = h
+            zstorage["B_m_{}".format(i)] = h_mask
             if i == self.layer_size:
                 # inserts random channel
                 random_input = torch.rand(h.size(0),1,h.size(2),h.size(3)).cuda()
@@ -80,11 +89,27 @@ class PConvUNetGEN(nn.Module):
                     
                     h = torch.cat([h, h_dict[enc_h_key], random_input], dim=1)
                     h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key], torch.ones_like(random_input)], dim=1)
+                    # print(i, h.shape)
+                    zstorage["B_h_{}".format(i)] = h
+                    zstorage["B_m_{}".format(i)] = h_mask
                 
             else:
                 h = torch.cat([h, h_dict[enc_h_key]], dim=1)
                 h_mask = torch.cat([h_mask, h_mask_dict[enc_h_key]], dim=1)
+                # print(i, h.shape)
+                zstorage["C_h_{}".format(i)] = h
+                zstorage["C_m_{}".format(i)] = h_mask
             h, h_mask = getattr(self, dec_l_key)(h, h_mask)
+            # print(i, h.shape)
+            zstorage["D_h_{}".format(i)] = h
+            zstorage["D_m_{}".format(i)] = h_mask
+
+        if self.final_activation is None:
+            pass
+        elif self.final_activation == "tanh":
+            h = torch.tanh(h)
+        else:
+            raise NotImplementedError()
 
         return h, h_mask
 
@@ -97,6 +122,7 @@ class PConvUNetGEN(nn.Module):
             for name, module in self.named_modules():
                 if isinstance(module, nn.BatchNorm2d) and 'enc' in name:
                     module.eval()
+
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -272,6 +298,9 @@ class Infiller(nn.Module):
             self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels, infoGAN=True)
             #self.infiller = PConvUNet(layer_size=num_layers, input_channels=input_channels)
             #pass
+        elif model_type == "pconv_gan2":
+            self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels,
+                                      final_activation="tanh")
         else:
             raise NotImplementedError()
 
@@ -283,8 +312,8 @@ class Infiller(nn.Module):
             return self.model(x, mask)
         elif self.model_type == "pconv_infogan":
             return self.model(x, mask, labels)
-        #elif self.model_type == "pconv_gan":
-        #    pass
+        elif self.model_type == "pconv_gan2":
+            return self.model(x, mask)
         else:
             raise NotImplementedError()
 

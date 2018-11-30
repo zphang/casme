@@ -9,6 +9,7 @@ import torch
 
 from . import log_container
 from . import criterion
+from .utils import per_image_normalization
 from .train_utils import accuracy
 from .ext.pconv_keras import random_mask
 
@@ -471,6 +472,7 @@ class InfillerCASMERunner(_BaseRunner):
             if is_train and i > len(data_loader) * self.perc_of_training:
                 break
             x, y = x.to(self.device), y.to(self.device)
+            x = per_image_normalization(x)
             log_containers.data_time.update()
             self.train_or_eval_batch(
                 x, y, i,
@@ -655,6 +657,7 @@ class GANRunner(_BaseRunner):
             if is_train and i > len(data_loader) * self.perc_of_training:
                 break
             x = x.to(self.device)
+            x = per_image_normalization(x)
             log_containers.data_time.update()
             self.train_or_eval_batch(x, i, log_containers=log_containers, is_train=is_train)
             # print log
@@ -684,16 +687,18 @@ class GANRunner(_BaseRunner):
                 self.logger.log('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
                 if is_printlogger:
                     self.logger.log()
+        return log_containers
 
     def train_or_eval_batch(self, x, i, log_containers, is_train=False):
-        self.d_step(x, i, log_containers, is_train)
-        self.i_step(x, i, log_containers, is_train)
+        # zp489: Hard-coding max_multiplier for now
+        masked_x, mask = self.generate_masked_x(x, max_multiplier=2)
+        self.d_step(x, masked_x, mask, i, log_containers, is_train, threshold=0.5)
+        self.i_step(x, masked_x, mask, i, log_containers, is_train)
 
         # measure elapsed time
         log_containers.batch_time.update()
 
-    def d_step(self, x, i, log_containers, is_train=False):
-        masked_x, mask = self._generate_masked_x(x)
+    def d_step(self, x, masked_x, mask, i, log_containers, is_train=False, threshold=None):
         with torch.set_grad_enabled(is_train):
             # compute mask and masked input
             generated_x, generated_mask = self.infiller(masked_x, mask)
@@ -704,22 +709,26 @@ class GANRunner(_BaseRunner):
             # loss_real = - torch.mean(real_pred)
             # loss_fake = fake_pred.mean()
             # Hinge from https://github.com/heykeetae/Self-Attention-GAN/blob/master/trainer.py
-            loss_real = torch.nn.ReLU()(1.0 - real_pred).mean()
-            loss_fake = torch.nn.ReLU()(1.0 + fake_pred).mean()
+
+            noise_real = torch.rand(x.shape[0]).to(self.device) * 0.2 - 0.1
+            noise_fake = torch.rand(x.shape[0]).to(self.device) * 0.2 - 0.1
+
+            loss_real = torch.nn.ReLU()(1.0 - real_pred + noise_real).mean()
+            loss_fake = torch.nn.ReLU()(1.0 + fake_pred + noise_fake).mean()
             loss = loss_real + loss_fake
 
         if is_train:
-            self.d_optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), 10)
-            self.d_optimizer.step()
+            if threshold is not None and loss.item() > threshold:
+                self.d_optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), 10)
+                self.d_optimizer.step()
 
         log_containers.d_loss_real.update(loss_real.item(), x.size(0))
         log_containers.d_loss_fake.update(loss_fake.item(), x.size(0))
         log_containers.d_loss.update(loss.item(), x.size(0) * 2)
 
-    def i_step(self, x, i, log_containers, is_train=False):
-        masked_x, mask = self._generate_masked_x(x)
+    def i_step(self, x, masked_x, mask, i, log_containers, is_train=False):
         with torch.set_grad_enabled(is_train):
             # compute mask and masked input
             generated_x, generated_mask = self.infiller(masked_x, mask)
@@ -735,8 +744,16 @@ class GANRunner(_BaseRunner):
 
         log_containers.i_loss.update(loss.item(), x.size(0))
 
-    def _generate_masked_x(self, x):
-        mask = np.stack([random_mask(x.shape[2], x.shape[3], x.shape[1]) for _ in range(x.shape[0])], axis=0)
+    def generate_masked_x(self, x, min_multiplier=1, max_multiplier=1, number=20):
+        mask = np.stack([
+            random_mask(
+                x.shape[2], x.shape[3], x.shape[1],
+                min_multiplier=min_multiplier,
+                max_multiplier=max_multiplier,
+                number=number,
+            )
+            for _ in range(x.shape[0])
+        ], axis=0)
         # generated mask here uses 1 as non-mask
         if self.infiller.model_type == "ciGAN":
             mask = criterion.invert_mask_func(mask)  # ciGAN uses 0 as non-mask
