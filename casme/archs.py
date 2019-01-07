@@ -301,6 +301,9 @@ class Infiller(nn.Module):
         elif model_type == "pconv_gan2":
             self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels,
                                       final_activation="tanh")
+        elif model_type == "none":
+            # To stop PyTorch from complaining about not having parameters
+            self.model = torch.nn.Linear(1, 1)
         else:
             raise NotImplementedError()
 
@@ -314,6 +317,8 @@ class Infiller(nn.Module):
             return self.model(x, mask, labels)
         elif self.model_type == "pconv_gan2":
             return self.model(x, mask)
+        elif self.model_type == "none":
+            return x, mask
         else:
             raise NotImplementedError()
 
@@ -363,6 +368,12 @@ class Masker(nn.Module):
     
     def forward(self, l, use_p):
         if self.add_prob_layers:
+            assert use_p is not None
+            if not isinstance(use_p, torch.Tensor):
+                batch_size = l[0].shape[0]
+                device = l[0].device
+                use_p = torch.Tensor([use_p] * batch_size).to(device)
+
             l = self.append_p(l, use_p)
         else:
             assert use_p is None

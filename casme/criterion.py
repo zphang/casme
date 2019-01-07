@@ -190,7 +190,9 @@ class MaskerPriorCriterion(nn.Module):
         mask_mean = mask.mean(dim=3).mean(dim=2)
         if self.add_prob_layers:
             # adjust to minimize deviation from p
+            print("A", mask_mean.mean())
             mask_mean = (mask_mean - use_p)
+            print("B", mask_mean.mean())
             if self.prob_loss_func == "l1":
                 mask_mean = mask_mean.abs()
             elif self.prob_loss_func == "l2":
@@ -199,7 +201,10 @@ class MaskerPriorCriterion(nn.Module):
                 raise KeyError(self.prob_loss_func)
 
         # apply regularization loss only on non-trivially confused images
-        regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean)
+        if self.add_prob_layers:
+            regularization = self.lambda_r * mask_mean
+        else:
+            regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean)
 
         # main loss for casme
         log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
@@ -292,6 +297,7 @@ class MaskerInfillerPriorCriterion(nn.Module):
         mask_mean = mask.mean(dim=3).mean(dim=2)
         if self.add_prob_layers:
             # adjust to minimize deviation from p
+            print("A", mask_mean.mean())
             mask_mean = (mask_mean - use_p)
             if self.prob_loss_func == "l1":
                 mask_mean = mask_mean.abs()
@@ -299,9 +305,13 @@ class MaskerInfillerPriorCriterion(nn.Module):
                 mask_mean = mask_mean.pow(2)
             else:
                 raise KeyError(self.prob_loss_func)
+            print("B", mask_mean.mean())
 
         # apply regularization loss only on non-trivially confused images
-        regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean)
+        if self.add_prob_layers:
+            regularization = self.lambda_r * mask_mean
+        else:
+            regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean)
 
         # main loss for casme
         log_prob = F.log_softmax(y_hat_from_modified_x, dim=1)
@@ -312,6 +322,10 @@ class MaskerInfillerPriorCriterion(nn.Module):
             log_prior = torch.log(self.prior)
             # - sum: q_i log(p_i / q_i)
             kl = - (y_hat_from_modified_x * (log_prior - log_prob)).sum(dim=1)
+        elif self.config["kl"] == "backward_ce":
+            log_prior = torch.log(self.prior)
+            # - sum: q_i log(p_i / q_i)
+            kl = - (y_hat_from_modified_x * log_prior).sum(dim=1)
         else:
             raise KeyError(self.config["kl"])
 
@@ -342,6 +356,7 @@ class MaskerInfillerPriorCriterion(nn.Module):
         loss = kl.mean()
 
         masker_loss = loss + regularization
+        print("C", regularization.item())
         metadata = {
             "correct_on_clean": correct_on_clean.float().mean(),
             "mistaken_on_masked": mistaken_on_masked.float().mean(),

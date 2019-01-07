@@ -465,7 +465,7 @@ class InfillerCASMERunner(_BaseRunner):
 
         self.classifier_zoo = {}
 
-    def train_or_eval(self, data_loader, is_train=False, epoch=None):
+    def train_or_eval(self, data_loader, use_p=None, is_train=False, epoch=None):
         log_containers = log_container.LogContainers()
         self.models_mode(is_train)
         for i, (x, y) in enumerate(data_loader):
@@ -475,7 +475,7 @@ class InfillerCASMERunner(_BaseRunner):
             x = per_image_normalization(x)
             log_containers.data_time.update()
             self.train_or_eval_batch(
-                x, y, i,
+                x, y, i, use_p=use_p,
                 log_containers=log_containers, is_train=is_train,
             )
             # print log
@@ -512,14 +512,16 @@ class InfillerCASMERunner(_BaseRunner):
             **log_containers.statistics.get_dictionary()
         }
 
-    def train_or_eval_batch(self, x, y, i, log_containers, is_train=False):
+    def train_or_eval_batch(self, x, y, i, log_containers, is_train=False, use_p=None):
 
         if self.add_prob_layers:
-            use_p = torch.Tensor(x.shape[0])\
-                .uniform_(self.prob_sample_low, self.prob_sample_high)\
-                .to(self.device)
+            if use_p is None:
+                assert is_train
+                use_p = torch.Tensor(x.shape[0])\
+                    .uniform_(self.prob_sample_low, self.prob_sample_high)\
+                    .to(self.device)
         else:
-            use_p = None
+            assert use_p is None
 
         # compute classifier prediction on the original images and get inner layers
         with torch.set_grad_enabled(is_train and (not self.fixed_classifier)):
@@ -546,8 +548,8 @@ class InfillerCASMERunner(_BaseRunner):
                     index = random.randint(0, len(self.classifier_zoo) - 1)
                 state_dict = self.classifier.state_dict()
                 self.classifier_zoo[index] = {}
-                for p in state_dict:
-                    self.classifier_zoo[index][p] = state_dict[p].cpu()
+                for param_name in state_dict:
+                    self.classifier_zoo[index][param_name] = state_dict[param_name].cpu()
                 self.logger.log('There are {0} iterations stored.'.format(len(self.classifier_zoo)))
 
         # detach inner layers to make them be features for decoder
