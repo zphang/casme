@@ -27,6 +27,13 @@ def get_masked_images(input, binary_mask, gray_scale=0, return_mask=False):
             return masked_in, masked_out
 
 
+def get_masked_images_v2(batch_x, mask):
+    with torch.no_grad():
+        masked_in = batch_x * mask
+        masked_out = batch_x * (1 - mask)
+    return masked_in, masked_out
+
+
 def inpaint(mask, masked_image):
     l = []
     for i in range(mask.size(0)):
@@ -49,9 +56,14 @@ def permute_image(image_tensor, mul255 = False):
         return image.numpy()
 
 
-def per_image_normalization(x):
+def per_image_normalization(x, mode=0):
     assert len(x.shape) == 4
     x_max = x.view(x.shape[0], -1).max(1)[0].view(-1, 1, 1, 1) + 1e-6
     x_min = x.view(x.shape[0], -1).min(1)[0].view(-1, 1, 1, 1)
-    normalized_x = (x - x_min) / (x_max - x_min).view(-1, 1, 1, 1) * 2 - 1
+    if mode == 0:
+        normalized_x = (x - x_min) / (x_max - x_min).view(-1, 1, 1, 1) * 2 - 1
+    elif mode == 1:
+        normalized_x = (x - x_min) / (x_max - x_min).view(-1, 1, 1, 1)
+    else:
+        raise KeyError(mode)
     return normalized_x

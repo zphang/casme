@@ -43,6 +43,7 @@ class CASMERunner(_BaseRunner):
                  classifier_optimizer, masker_optimizer,
                  classifier_criterion, masker_criterion,
                  fixed_classifier, perc_of_training, prob_historic, save_freq, zoo_size,
+                 image_normalization_mode,
                  add_prob_layers, prob_sample_low, prob_sample_high,
                  print_freq,
                  device,
@@ -62,6 +63,8 @@ class CASMERunner(_BaseRunner):
         self.prob_historic = prob_historic
         self.save_freq = save_freq
         self.zoo_size = zoo_size
+        self.image_normalization_mode = image_normalization_mode
+
         self.add_prob_layers = add_prob_layers
         self.prob_sample_low = prob_sample_low
         self.prob_sample_high = prob_sample_high
@@ -79,6 +82,7 @@ class CASMERunner(_BaseRunner):
             if is_train and i > len(data_loader) * self.perc_of_training:
                 break
             x, y = x.to(self.device), y.to(self.device)
+            x = per_image_normalization(x, mode=self.image_normalization_mode)
             log_containers.data_time.update()
             self.train_or_eval_batch(
                 x, y, i,
