@@ -139,14 +139,16 @@ def main():
             add_prob_layers=args.add_prob_layers,
             prob_loss_func=args.prob_loss_func,
             adversarial=args.adversarial,
+            device=device
         )
     elif args.masker_criterion == "kldivergence":
         masker_criterion = criterion.MaskerPriorCriterion(
             lambda_r=args.lambda_r,
+            class_weights=[1 / 1000] * 1000,
             add_prob_layers=args.add_prob_layers,
             prob_loss_func=args.prob_loss_func,
-            prior=(torch.ones(1000) / 1000).to(device),
             config=args.masker_criterion_config,
+            device=device,
         )
     else:
         raise KeyError(args.masker_criterion)
@@ -163,6 +165,7 @@ def main():
         prob_historic=args.prob_historic,
         save_freq=args.save_freq,
         zoo_size=args.f_size,
+        image_normalization_mode=None,
         add_prob_layers=args.add_prob_layers,
         prob_sample_low=args.prob_sample_low,
         prob_sample_high=args.prob_sample_high,

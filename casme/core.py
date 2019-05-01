@@ -15,18 +15,18 @@ from .ext.pconv_keras import random_mask
 
 
 class PrintLogger:
-	def log(self, string_to_log="", log_log=True, print_log=True, no_enter=False):
-		sep = "" if no_enter else "\n"
-		print(string_to_log, sep=sep)
+    def log(self, string_to_log="", log_log=True, print_log=True, no_enter=False):
+        sep = "" if no_enter else "\n"
+        print(string_to_log, sep=sep)
 
-	def flush(self):
-		sys.stdout.flush()
+    def flush(self):
+        sys.stdout.flush()
 
-	def close(self):
-		pass
+    def close(self):
+        pass
 
 
-class _BaseRunner:
+class BaseRunner:
     def train_or_eval(self, *args, **kwargs):
         raise NotImplementedError()
 
@@ -37,7 +37,7 @@ class _BaseRunner:
         raise NotImplementedError()
 
 
-class CASMERunner(_BaseRunner):
+class CASMERunner(BaseRunner):
     def __init__(self,
                  classifier, masker,
                  classifier_optimizer, masker_optimizer,
@@ -230,7 +230,7 @@ class CASMERunner(_BaseRunner):
             self.classifier.eval()
 
 
-class InfillerRunner(_BaseRunner):
+class InfillerRunner(BaseRunner):
     def __init__(self,
                  classifier, infiller,
                  infiller_optimizer,
@@ -431,7 +431,7 @@ class InfillerRunner(_BaseRunner):
             self.infiller.eval()
 
 
-class InfillerCASMERunner(_BaseRunner):
+class InfillerCASMERunner(BaseRunner):
     def __init__(self,
                  classifier, masker, infiller,
                  classifier_optimizer, masker_optimizer, infiller_optimizer,
@@ -476,7 +476,7 @@ class InfillerCASMERunner(_BaseRunner):
             if is_train and i > len(data_loader) * self.perc_of_training:
                 break
             x, y = x.to(self.device), y.to(self.device)
-            x = per_image_normalization(x)
+            x = per_image_normalization(x, mode="-1_1")
             log_containers.data_time.update()
             self.train_or_eval_batch(
                 x, y, i, use_p=use_p,
@@ -629,7 +629,7 @@ class InfillerCASMERunner(_BaseRunner):
             self.classifier.eval()
 
 
-class GANRunner(_BaseRunner):
+class GANRunner(BaseRunner):
     def __init__(self,
                  discriminator, infiller,
                  d_optimizer, i_optimizer,
@@ -663,7 +663,7 @@ class GANRunner(_BaseRunner):
             if is_train and i > len(data_loader) * self.perc_of_training:
                 break
             x = x.to(self.device)
-            x = per_image_normalization(x)
+            x = per_image_normalization(x, "-1_1")
             log_containers.data_time.update()
             self.train_or_eval_batch(x, i, log_containers=log_containers, is_train=is_train)
             # print log

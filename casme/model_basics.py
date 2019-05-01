@@ -4,7 +4,6 @@ import scipy.ndimage
 import torch
 
 from casme import archs
-import patch_classification.patch_model.torch.models_torch as models
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -37,27 +36,6 @@ def old_load_model(casm_path):
     )
     print(checkpoint["args"])
     decoder.load_state_dict(checkpoint['state_dict_masker'])
-    decoder.eval().to(device)
-    print("=> Model loaded.")
-
-    return {'classifier': classifier, 'decoder': decoder, 'name': name}
-
-
-
-def load_model(casm_path):
-    name = casm_path.split('/')[-1].replace('.chk','')
-
-    print("\n=> Loading model localized in '{}'".format(casm_path))
-    classifier = models.PatchResNetV2(parameters=MODEL_PARAMETERS)
-    checkpoint = torch.load(casm_path)
-
-    classifier.load_state_dict(checkpoint['state_dict_classifier'])
-    classifier.eval().to(device)
-
-    decoder = archs.decoder(
-        add_prob_layers=getattr(checkpoint["args"], "add_prob_layers", None)
-    )
-    decoder.load_state_dict(checkpoint['state_dict_decoder'])
     decoder.eval().to(device)
     print("=> Model loaded.")
 

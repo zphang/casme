@@ -87,17 +87,19 @@ class InfillerCriterion(nn.Module):
 
 
 class MaskerCriterion(nn.Module):
-    def __init__(self, lambda_r, add_prob_layers, prob_loss_func, adversarial, device):
+    def __init__(self, lambda_r, add_prob_layers, prob_loss_func, adversarial, device,
+                 y_hat_log_softmax=False):
         super().__init__()
         self.lambda_r = lambda_r
         self.add_prob_layers = add_prob_layers
         self.prob_loss_func = prob_loss_func
         self.adversarial = adversarial
         self.device = device
+        self.y_hat_log_softmax = y_hat_log_softmax
 
     def forward(self,
                 mask, y_hat, y_hat_from_masked_x, y,
-                classifier_loss_from_masked_x, use_p):
+                classifier_loss_from_masked_x, use_p, reduce=True):
         _, max_indexes = y_hat.detach().max(1)
         _, max_indexes_on_masked_x = y_hat_from_masked_x.detach().max(1)
         correct_on_clean = y.eq(max_indexes)
@@ -131,34 +133,60 @@ class MaskerCriterion(nn.Module):
 
         # main loss for casme
         if self.adversarial:
-            loss = -classifier_loss_from_masked_x
+            if reduce:
+                loss = -classifier_loss_from_masked_x
+            else:
+                # This is a hack.
+                if self.y_hat_log_softmax:
+                    classifier_criterion = F.nll_loss
+                else:
+                    classifier_criterion = F.cross_entropy
+                loss = -classifier_criterion(y_hat_from_masked_x, y, reduction='none')
         else:
-            log_prob = F.log_softmax(y_hat_from_masked_x, 1)
+            if self.y_hat_log_softmax:
+                log_prob = y_hat_from_masked_x
+            else:
+                log_prob = F.log_softmax(y_hat_from_masked_x, dim=-1)
             prob = log_prob.exp()
             negative_entropy = (log_prob * prob).sum(1)
             # apply main loss only when original images are correctly classified
             negative_entropy_correct = negative_entropy * correct_on_clean.float()
-            loss = negative_entropy_correct.mean()
+            loss = negative_entropy_correct
+
+        if reduce:
+            loss = loss.mean()
 
         masker_loss = loss + regularization
-        metadata = {
-            "correct_on_clean": correct_on_clean.float().mean(),
-            "mistaken_on_masked": mistaken_on_masked.float().mean(),
-            "nontrivially_confused": nontrivially_confused.float().mean(),
-            "loss": loss,
-            "regularization": regularization,
-        }
+        if reduce:
+            regularization = regularization.mean()
+            metadata = {
+                "correct_on_clean": correct_on_clean.float().mean(),
+                "mistaken_on_masked": mistaken_on_masked.float().mean(),
+                "nontrivially_confused": nontrivially_confused.float().mean(),
+                "loss": loss,
+                "regularization": regularization,
+            }
+        else:
+            metadata = {
+                "correct_on_clean": correct_on_clean.float(),
+                "mistaken_on_masked": mistaken_on_masked.float(),
+                "nontrivially_confused": nontrivially_confused.float(),
+                "loss": loss,
+                "regularization": regularization,
+            }
         return masker_loss, metadata
 
 
 class MaskerPriorCriterion(nn.Module):
-    def __init__(self, lambda_r, class_weights, add_prob_layers, prob_loss_func, config, device):
+    def __init__(self, lambda_r, class_weights, add_prob_layers, prob_loss_func, config, device,
+                 y_hat_log_softmax=False):
         super().__init__()
         self.lambda_r = lambda_r
         self.add_prob_layers = add_prob_layers
         self.prob_loss_func = prob_loss_func
         self.config = json.loads(config)
         self.device = device
+        self.y_hat_log_softmax = y_hat_log_softmax
 
         self.class_weights = torch.Tensor(class_weights).to(device)
         inverse_class_weights = 1 / self.class_weights
@@ -166,9 +194,13 @@ class MaskerPriorCriterion(nn.Module):
 
     def forward(self,
                 mask, y_hat, y_hat_from_masked_x, y,
-                classifier_loss_from_masked_x, use_p):
-        y_hat_prob = F.softmax(y_hat, dim=1)
-        y_hat_from_masked_x_prob = F.softmax(y_hat_from_masked_x, dim=1)
+                classifier_loss_from_masked_x, use_p, reduce=True):
+        if self.y_hat_log_softmax:
+            y_hat_prob = torch.exp(y_hat)
+            y_hat_from_masked_x_prob = torch.exp(y_hat_from_masked_x)
+        else:
+            y_hat_prob = F.softmax(y_hat, dim=-1)
+            y_hat_from_masked_x_prob = F.softmax(y_hat_from_masked_x, dim=-1)
 
         # Should this be / or - ?
         if self.config["prior"] == "subtract":
@@ -187,12 +219,10 @@ class MaskerPriorCriterion(nn.Module):
         mistaken_on_masked = y.ne(max_indexes_on_masked_x)
         nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
 
-        mask_mean = mask.mean(dim=3).mean(dim=2)
+        mask_mean = mask.mean(dim=3).mean(dim=2).squeeze(1)
         if self.add_prob_layers:
             # adjust to minimize deviation from p
-            print("A", mask_mean.mean())
             mask_mean = (mask_mean - use_p)
-            print("B", mask_mean.mean())
             if self.prob_loss_func == "l1":
                 mask_mean = mask_mean.abs()
             elif self.prob_loss_func == "l2":
@@ -201,20 +231,23 @@ class MaskerPriorCriterion(nn.Module):
                 raise KeyError(self.prob_loss_func)
 
         # apply regularization loss only on non-trivially confused images
-        if self.add_prob_layers:
+        if self.add_prob_layers or self.config.get("regularize_always"):
             regularization = self.lambda_r * mask_mean
         else:
             regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean)
 
         # main loss for casme
-        log_prob = F.log_softmax(y_hat_from_masked_x, dim=1)
+        if self.y_hat_log_softmax:
+            log_prob = y_hat_from_masked_x
+        else:
+            log_prob = F.log_softmax(y_hat_from_masked_x, dim=-1)
         if self.config["kl"] == "forward":
             # - sum: p_i log(q_i)
-            kl = - (self.prior * log_prob).sum(dim=1)
+            kl = - (self.prior * log_prob).sum(dim=-1)
         elif self.config["kl"] == "backward":
             log_prior = torch.log(self.prior)
             # - sum: q_i log(p_i / q_i)
-            kl = - (y_hat_from_masked_x_prob * (log_prior - log_prob)).sum(dim=1)
+            kl = - (y_hat_from_masked_x_prob * (log_prior - log_prob)).sum(dim=-1)
         else:
             raise KeyError(self.config["kl"])
 
@@ -241,28 +274,40 @@ class MaskerPriorCriterion(nn.Module):
             )
             regularization = regularization * reg_weight
 
-        regularization = regularization.mean()
-        loss = kl.mean()
-
-        masker_loss = loss + regularization
-        metadata = {
-            "correct_on_clean": correct_on_clean.float().mean(),
-            "mistaken_on_masked": mistaken_on_masked.float().mean(),
-            "nontrivially_confused": nontrivially_confused.float().mean(),
-            "loss": loss,
-            "regularization": regularization,
-        }
+        if reduce:
+            regularization = regularization.mean()
+            loss = kl.mean()
+            masker_loss = loss + regularization
+            metadata = {
+                "correct_on_clean": correct_on_clean.float().mean(),
+                "mistaken_on_masked": mistaken_on_masked.float().mean(),
+                "nontrivially_confused": nontrivially_confused.float().mean(),
+                "loss": loss,
+                "regularization": regularization,
+            }
+        else:
+            loss = kl
+            masker_loss = loss + regularization
+            metadata = {
+                "correct_on_clean": correct_on_clean.float(),
+                "mistaken_on_masked": mistaken_on_masked.float(),
+                "nontrivially_confused": nontrivially_confused.float(),
+                "loss": loss,
+                "regularization": regularization,
+            }
         return masker_loss, metadata
 
 
 class MaskerInfillerPriorCriterion(nn.Module):
-    def __init__(self, lambda_r, class_weights, add_prob_layers, prob_loss_func, config, device):
+    def __init__(self, lambda_r, class_weights, add_prob_layers, prob_loss_func, config, device,
+                 y_hat_log_softmax=False):
         super().__init__()
         self.lambda_r = lambda_r
         self.add_prob_layers = add_prob_layers
         self.prob_loss_func = prob_loss_func
         self.config = json.loads(config)
         self.device = device
+        self.y_hat_log_softmax = y_hat_log_softmax
 
         self.class_weights = torch.Tensor(class_weights).to(device)
         inverse_class_weights = 1 / self.class_weights
@@ -314,18 +359,18 @@ class MaskerInfillerPriorCriterion(nn.Module):
             regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean)
 
         # main loss for casme
-        log_prob = F.log_softmax(y_hat_from_modified_x, dim=1)
+        log_prob = F.log_softmax(y_hat_from_modified_x, dim=-1)
         if self.config["kl"] == "forward":
             # - sum: p_i log(q_i)
-            kl = - (self.prior * log_prob).sum(dim=1)
+            kl = - (self.prior * log_prob).sum(dim=-1)
         elif self.config["kl"] == "backward":
             log_prior = torch.log(self.prior)
             # - sum: q_i log(p_i / q_i)
-            kl = - (y_hat_from_modified_x * (log_prior - log_prob)).sum(dim=1)
+            kl = - (y_hat_from_modified_x * (log_prior - log_prob)).sum(dim=-1)
         elif self.config["kl"] == "backward_ce":
             log_prior = torch.log(self.prior)
             # - sum: q_i log(p_i / q_i)
-            kl = - (y_hat_from_modified_x * log_prior).sum(dim=1)
+            kl = - (y_hat_from_modified_x * log_prior).sum(dim=-1)
         else:
             raise KeyError(self.config["kl"])
 
