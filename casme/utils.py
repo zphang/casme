@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 
 import torch
 import torchvision.transforms as transforms
@@ -8,7 +9,7 @@ from casme.model_basics import binarize_mask, get_mask
 
 def get_binarized_mask(input, model, use_p=None):
     mask = get_mask(input, model, use_p=use_p)
-    return binarize_mask(mask.clone()), mask.cpu()
+    return binarize_mask(mask.clone()), mask
 
 
 def get_masked_images(input, binary_mask, gray_scale=0, return_mask=False):
@@ -38,7 +39,7 @@ def inpaint(mask, masked_image):
     l = []
     for i in range(mask.size(0)):
         permuted_image = permute_image(masked_image[i], mul255=True)
-        m = mask[i].squeeze().byte().numpy()
+        m = mask[i].squeeze().byte().cpu().numpy()
         inpainted_numpy = cv2.inpaint(permuted_image, m, 3, cv2.INPAINT_TELEA)  # cv2.INPAINT_NS
         l.append(transforms.ToTensor()(inpainted_numpy).unsqueeze(0))
     inpainted_tensor = torch.cat(l, 0)
@@ -46,14 +47,14 @@ def inpaint(mask, masked_image):
     return inpainted_tensor       
 
 
-def permute_image(image_tensor, mul255 = False):
+def permute_image(image_tensor, mul255=False):
     with torch.no_grad():
         image = image_tensor.clone().squeeze().permute(1, 2, 0)
         if mul255:
             image *= 255
             image = image.byte()
 
-        return image.numpy()
+        return image.cpu().numpy()
 
 
 def per_image_normalization(x, mode):
@@ -69,3 +70,26 @@ def per_image_normalization(x, mode):
     else:
         raise KeyError(mode)
     return normalized_x
+
+
+class ImageProc:
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+
+    def norm(self, x):
+        return (x - self.mean) / self.std
+
+    def denorm(self, x):
+        return x * self. std + self.mean
+
+
+def count_params(module):
+    return sum(
+        np.prod(param.shape)
+        for param in module.parameters()
+    )
+
+
+def arr_for_plot(tensor):
+    return tensor.detach().permute(1, 2, 0).cpu().numpy()

@@ -4,6 +4,7 @@ import scipy.ndimage
 import torch
 
 from casme import archs
+from casme.criterion import default_apply_mask_func, default_infill_func
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -31,15 +32,43 @@ def old_load_model(casm_path):
     classifier.load_state_dict(checkpoint['state_dict_classifier'])
     classifier.eval().to(device)
 
-    decoder = archs.decoder(
+    masker = archs.masker(
         add_prob_layers=getattr(checkpoint["args"], "add_prob_layers", None)
     )
     print(checkpoint["args"])
-    decoder.load_state_dict(checkpoint['state_dict_masker'])
-    decoder.eval().to(device)
+    masker.load_state_dict(checkpoint['state_dict_masker'])
+    masker.eval().to(device)
     print("=> Model loaded.")
 
-    return {'classifier': classifier, 'decoder': decoder, 'name': name}
+    return {'classifier': classifier, 'masker': masker, 'name': name}
+
+
+def icasme_load_model(casm_path):
+    name = casm_path.split('/')[-1].replace('.chk', '')
+
+    print("\n=> Loading model localized in '{}'".format(casm_path))
+    classifier = archs.resnet50shared()
+    checkpoint = torch.load(casm_path)
+
+    classifier.load_state_dict(checkpoint['state_dict_classifier'])
+    classifier.eval().to(device)
+
+    masker = archs.masker(
+        add_prob_layers=getattr(checkpoint["args"], "add_prob_layers", None)
+    )
+    print(checkpoint["args"])
+    masker.load_state_dict(checkpoint['state_dict_masker'])
+    masker.eval().to(device)
+    print("=> Model loaded.")
+
+    infiller = archs.InfillerCNN(
+        4, 3, [32, 64, 128, 256],
+    )
+    infiller.load_state_dict(checkpoint['state_dict_infiller'])
+    infiller.eval().to(device)
+
+    return {'classifier': classifier, 'masker': masker, 'infiller': infiller,
+            'name': name}
 
 
 def get_masks_and_check_predictions(input, target, model):
@@ -65,18 +94,19 @@ def get_mask(input, model, use_p=None, get_output=False):
     with torch.no_grad():
         input = input.to(device)
         classifier_output, layers = model['classifier'](input, return_intermediate=True)
-        """
-        # Pad hack
-        layers[0] = F.pad(layers[0], (1, 1, 1, 1))
-        layers[1] = F.pad(layers[1], (1, 1, 1, 1))
-        layers[2] = F.pad(layers[2], (1, 0, 1, 0))
-        # End Pad hack
-        """
-        decoder_output = model['decoder'](layers, use_p=use_p)
+        masker_output = model['masker'](layers, use_p=use_p)
         if get_output:
-            return decoder_output, classifier_output
+            return masker_output, classifier_output
         else:
-            return decoder_output
+            return masker_output
+
+
+def get_infilled(x, mask, infiller):
+    with torch.no_grad():
+        masked_x = default_apply_mask_func(x=x, mask=mask)
+        generated = infiller(masked_x.detach(), mask.detach())
+        infilled = default_infill_func(masked_x, mask, generated)
+    return generated, infilled
 
 
 def binarize_mask(mask):
@@ -91,7 +121,7 @@ def binarize_mask(mask):
             binarized_mask[i] = flat_mask[i].gt(th).float()
         binarized_mask = binarized_mask.view(mask.size())
 
-        return binarized_mask
+        return binarized_mask.to(device)
 
 
 def get_largest_connected(m):

@@ -27,11 +27,7 @@ def apply_uniform_random_value_mask_func(x, mask):
 
 
 def default_infill_func(x, mask, generated_image):
-    # for mask, return image infilled with generated_image
-    # mask = 1, non-mask = 0
-    # x[mask==1] = generated_image[mask==1]
-    return generated_image * (1 - mask) + x * mask # TODO: change the order?
-    #return None
+    return generated_image * mask + x * (1-mask)
 
 
 class InfillerCriterion(nn.Module):

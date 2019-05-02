@@ -13,75 +13,8 @@ from casme import core, archs, criterion
 from casme.train_utils import adjust_learning_rate, save_checkpoint, set_args
 
 
-parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data',
-                    help='path to dataset')
-parser.add_argument('--casms-path', default='',
-                    help='path to models that generate masks')
-parser.add_argument('--log-path', default='',
-                    help='directory for logs')
-randomhash = ''.join(str(time.time()).split('.'))
-parser.add_argument('-n', '--name', default=randomhash+'random',
-                    help='name used to build a path where the models and log are saved (default: random)')
-parser.add_argument('--print-freq', default=100, type=int,
-                    help='print frequency (default: 100)')
-parser.add_argument('--workers', default=4, type=int,
-                    help='number of data loading workers (default: 4)')
-
-parser.add_argument('--epochs', default=60, type=int,
-                    help='number of total epochs to run')
-parser.add_argument('--batch-size', default=128, type=int,
-                    help='mini-batch size (default: 128)')
-parser.add_argument('--perc-of-training', default=0.2, type=float,
-                    help='percent of training set seen in each epoch')
-parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
-                    help='initial learning rate for classifier')
-parser.add_argument('--lr-casme', '--learning-rate-casme', default=0.001, type=float,
-                    help='initial learning rate for casme')
-parser.add_argument('--lrde', default=20, type=int,
-                    help='how often is the learning rate decayed')
-parser.add_argument('--momentum', default=0.9, type=float,
-                    help='momentum for classifier')
-parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
-                    help='weight decay for both classifier and casme (default: 1e-4)')
-
-parser.add_argument('--upsample', default='nearest',
-                    help='mode for final upsample layer in the decoder (default: nearest)')
-parser.add_argument('--fixed-classifier', action='store_true',
-                    help='train classifier')
-parser.add_argument('--prob-historic', default=0.5, type=float,
-                    help='probability for evaluating historic model')
-parser.add_argument('--save-freq', default=1000, type=int,
-                    help='frequency of model saving to history (in batches)')
-parser.add_argument('--f-size', default=30, type=int,
-                    help='size of F set - maximal number of previous classifier iterations stored')
-parser.add_argument('--lambda-r', default=10, type=float,
-                    help='regularization weight controlling mask size')
-parser.add_argument('--adversarial', action='store_true',
-                    help='adversarial training uses classification loss instead of entropy')
-parser.add_argument('--masker-criterion', default="crossentropy", type=str,
-                    help='crossentropy|kldivergence')
-parser.add_argument('--masker-criterion-config', default="", type=str,
-                    help='etc')
-
-parser.add_argument('--reproduce', default='',
-                    help='reproducing paper results (F|L|FL|L100|L1000)')
-
-parser.add_argument('--add-prob-layers', action='store_true')
-parser.add_argument('--prob-sample-low', default=0.25, type=float)
-parser.add_argument('--prob-sample-high', default=0.75, type=float)
-parser.add_argument('--prob-loss-func', default="l1")
-
-args = parser.parse_args()
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-set_args(args)
-
-F_k = {}
-
-
-def main():
-    global args
+def main(args):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # create models and optimizers
     print("=> creating models...")
@@ -214,5 +147,71 @@ def main():
                     tr_s['tv'] + ' ' + val_s['tv'] + '\n')
 
 
+def get_args(*raw_args):
+    parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+    parser.add_argument('data',
+                        help='path to dataset')
+    parser.add_argument('--casms-path', default='',
+                        help='path to models that generate masks')
+    parser.add_argument('--log-path', default='',
+                        help='directory for logs')
+    randomhash = ''.join(str(time.time()).split('.'))
+    parser.add_argument('-n', '--name', default=randomhash + 'random',
+                        help='name used to build a path where the models and log are saved (default: random)')
+    parser.add_argument('--print-freq', default=100, type=int,
+                        help='print frequency (default: 100)')
+    parser.add_argument('--workers', default=4, type=int,
+                        help='number of data loading workers (default: 4)')
+
+    parser.add_argument('--epochs', default=60, type=int,
+                        help='number of total epochs to run')
+    parser.add_argument('--batch-size', default=128, type=int,
+                        help='mini-batch size (default: 128)')
+    parser.add_argument('--perc-of-training', default=0.2, type=float,
+                        help='percent of training set seen in each epoch')
+    parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
+                        help='initial learning rate for classifier')
+    parser.add_argument('--lr-casme', '--learning-rate-casme', default=0.001, type=float,
+                        help='initial learning rate for casme')
+    parser.add_argument('--lrde', default=20, type=int,
+                        help='how often is the learning rate decayed')
+    parser.add_argument('--momentum', default=0.9, type=float,
+                        help='momentum for classifier')
+    parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
+                        help='weight decay for both classifier and casme (default: 1e-4)')
+
+    parser.add_argument('--upsample', default='nearest',
+                        help='mode for final upsample layer in the decoder (default: nearest)')
+    parser.add_argument('--fixed-classifier', action='store_true',
+                        help='train classifier')
+    parser.add_argument('--prob-historic', default=0.5, type=float,
+                        help='probability for evaluating historic model')
+    parser.add_argument('--save-freq', default=1000, type=int,
+                        help='frequency of model saving to history (in batches)')
+    parser.add_argument('--f-size', default=30, type=int,
+                        help='size of F set - maximal number of previous classifier iterations stored')
+    parser.add_argument('--lambda-r', default=10, type=float,
+                        help='regularization weight controlling mask size')
+    parser.add_argument('--adversarial', action='store_true',
+                        help='adversarial training uses classification loss instead of entropy')
+    parser.add_argument('--masker-criterion', default="crossentropy", type=str,
+                        help='crossentropy|kldivergence')
+    parser.add_argument('--masker-criterion-config', default="", type=str,
+                        help='etc')
+
+    parser.add_argument('--reproduce', default='',
+                        help='reproducing paper results (F|L|FL|L100|L1000)')
+
+    parser.add_argument('--add-prob-layers', action='store_true')
+    parser.add_argument('--prob-sample-low', default=0.25, type=float)
+    parser.add_argument('--prob-sample-high', default=0.75, type=float)
+    parser.add_argument('--prob-loss-func', default="l1")
+
+    args = parser.parse_args(*raw_args)
+    set_args(args)
+
+    return args
+
+
 if __name__ == '__main__':
-    main()
+    main(get_args())

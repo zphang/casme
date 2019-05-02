@@ -19,6 +19,12 @@ class LogContainers:
         self.nontrivially_confused = stats.AverageMeter()
 
 
+class ICASMELogContainers(LogContainers):
+    def __init__(self):
+        super().__init__()
+        self.infiller_loss = stats.AverageMeter()
+
+
 class InfillingLogContainers(LogContainers):
     def __init__(self):
         super().__init__()

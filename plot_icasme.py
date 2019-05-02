@@ -9,7 +9,7 @@ import torchvision.datasets as datasets
 import matplotlib
 import matplotlib.pyplot as plt
 
-from casme.model_basics import old_load_model
+from casme.model_basics import icasme_load_model, get_infilled
 from casme.utils import get_binarized_mask, get_masked_images, inpaint, permute_image
 
 
@@ -64,7 +64,7 @@ def main():
         ])),
         batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
 
-    model = old_load_model(args.casm_path)
+    model = icasme_load_model(args.casm_path)
 
     perm = np.random.RandomState(seed=args.seed).permutation(len(data_loader))
     if args.plots > 0:
@@ -89,14 +89,17 @@ def main():
         # === get mask and masked images
         binary_mask, soft_mask = get_binarized_mask(normalized_input, model)
         soft_masked_image = normalized_input * soft_mask
+        generated, infilled = get_infilled(input_, soft_mask, model["infiller"])
 
         for j in range(soft_masked_image.size(0)):
             denormalize(soft_masked_image[j])
+            denormalize(generated[j])
+            denormalize(infilled[j])
         masked_in, masked_out = get_masked_images(input_, binary_mask, 0.35)
         inpainted = inpaint(binary_mask, masked_out)
 
         # === setup plot
-        fig, axes = plt.subplots(5, args.columns)
+        fig, axes = plt.subplots(7, args.columns)
         if args.columns == 4:
             fig.subplots_adjust(bottom=-0.02, top=1.02, wspace=0.05, hspace=0.05)
         if args.columns == 5:
@@ -113,6 +116,8 @@ def main():
             axes[2, col].imshow(permute_image(masked_out[col]))
             axes[3, col].imshow(permute_image(inpainted[col]))
             axes[4, col].imshow(permute_image(soft_masked_image[col]))
+            axes[5, col].imshow(permute_image(generated[col]))
+            axes[6, col].imshow(permute_image(infilled[col]))
 
         for ax in axes.flatten():
             ax.set_xticks([])

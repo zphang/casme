@@ -8,6 +8,18 @@ import torch.nn.functional as F
 from .ext.pytorch_inpainting_with_partial_conv import PConvUNet, PCBActiv
 
 
+class Upsample(nn.Module):
+    def __init__(self, size=None, scale_factor=None, mode='nearest', align_corners=None):
+        super(Upsample, self).__init__()
+        self.size = size
+        self.scale_factor = scale_factor
+        self.mode = mode
+        self.align_corners = align_corners
+
+    def forward(self, x):
+        return F.interpolate(x, self.size, self.scale_factor, self.mode, self.align_corners)
+
+
 class PConvUNetGEN(nn.Module):
     def __init__(self, layer_size=7, input_channels=3, upsampling_mode='nearest', infoGAN=False,
                  final_activation=None):
@@ -258,6 +270,7 @@ def resnet50shared(pretrained=False, **kwargs):
         model.load_state_dict(model_zoo.load_url('https://download.pytorch.org/models/resnet50-19c8e357.pth'))
     return model
 
+
 class Discriminator(nn.Module):
     def __init__(self, input_dim, return_logits=False):
         super().__init__()
@@ -292,12 +305,8 @@ class Infiller(nn.Module):
             self.model = PConvUNet(layer_size=num_layers, input_channels=input_channels)
         elif model_type == "pconv_gan":
             self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels)
-            #self.infiller = PConvUNet(layer_size=num_layers, input_channels=input_channels)
-            #pass
         elif model_type == "pconv_infogan":
             self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels, infoGAN=True)
-            #self.infiller = PConvUNet(layer_size=num_layers, input_channels=input_channels)
-            #pass
         elif model_type == "pconv_gan2":
             self.model = PConvUNetGEN(layer_size=num_layers, input_channels=input_channels,
                                       final_activation="tanh")
@@ -310,7 +319,6 @@ class Infiller(nn.Module):
     def forward(self, x, mask, labels=None):
         if self.model_type == "ciGAN":
             pass
-        #elif self.model_type == "pconv":
         elif self.model_type in ["pconv", "pconv_gan"]:
             return self.model(x, mask)
         elif self.model_type == "pconv_infogan":
@@ -339,7 +347,7 @@ class Masker(nn.Module):
             nn.Conv2d(in_channels[0] + 4 * out_channel + p_dim, 1,
                       kernel_size=3, stride=1, padding=1, bias=True),
             nn.Sigmoid(),
-            nn.Upsample(scale_factor=4, mode=final_upsample_mode)
+            Upsample(scale_factor=4, mode=final_upsample_mode),
         )
 
         for m in self.modules():
@@ -357,7 +365,7 @@ class Masker(nn.Module):
                 nn.Conv2d(inplanes, outplanes, kernel_size=1, stride=1, padding=0, bias=False),
                 nn.BatchNorm2d(outplanes),
                 nn.ReLU(inplace=True),
-                nn.Upsample(scale_factor=scale_factor, mode='bilinear', align_corners=False)
+                Upsample(scale_factor=scale_factor, mode='bilinear', align_corners=False)
             )
         else:
             return nn.Sequential(
@@ -396,5 +404,66 @@ class Masker(nn.Module):
             new_l.append(torch.cat([layer, p_slice], dim=1))
         return new_l
 
-def decoder(**kwargs):
+
+class InfillerCNN(nn.Module):
+    def __init__(self, in_chans, out_chans, intermediate_dim_ls):
+        super().__init__()
+        self.in_chans = in_chans
+        self.out_chans = out_chans
+        self.intermediate_dim_ls = intermediate_dim_ls
+        self.down_ls = nn.ModuleList()
+        self.up_ls = nn.ModuleList()
+        self.n_dims = len(intermediate_dim_ls)
+
+        self.down_ls.append(self.get_conv_layer(
+            in_chans, intermediate_dim_ls[0],
+        ))
+        for i in range(0, self.n_dims - 1):
+            self.down_ls.append(self.get_conv_layer(
+                intermediate_dim_ls[i],
+                intermediate_dim_ls[i + 1],
+            ))
+        self.up_ls.append(self.get_conv_layer(
+            intermediate_dim_ls[-1],
+            intermediate_dim_ls[-2],
+        ))
+        for i in list(range(self.n_dims - 2, 0, -1)):
+            self.up_ls.append(self.get_conv_layer(
+                self.up_ls[-1].out_channels + intermediate_dim_ls[i],
+                intermediate_dim_ls[i],
+            ))
+        self.up_ls.append(self.get_conv_layer(
+            intermediate_dim_ls[0] + intermediate_dim_ls[1],
+            out_chans,
+        ))
+        self.relu = nn.ReLU()
+        self.max_pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        self.upsample = Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.init_weights()
+
+    def forward(self, masked_x, mask):
+        h = torch.cat([masked_x, mask], dim=1)
+        down_h_ls = []
+        for i in range(self.n_dims):
+            h = self.max_pool(self.relu(self.down_ls[i](h)))
+            down_h_ls.append(h)
+        for i in range(self.n_dims - 1):
+            h = self.upsample(self.relu(self.up_ls[i](h)))
+            h = torch.cat([h, down_h_ls[-i - 2]], dim=1)
+        h = self.upsample(self.up_ls[-1](h))
+        return h
+
+    @classmethod
+    def get_conv_layer(cls, in_channels, out_channels):
+        return nn.Conv2d(
+            in_channels, out_channels,
+            kernel_size=3, stride=1, padding=1,
+        )
+
+    def init_weights(self):
+        for conv_layer in list(self.down_ls) + list(self.up_ls):
+            torch.nn.init.xavier_uniform_(conv_layer.weight)
+
+
+def masker(**kwargs):
     return Masker([64, 256, 512, 1024, 2048], 64, **kwargs)
