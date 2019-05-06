@@ -6,48 +6,14 @@ import torch
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-import matplotlib
 import matplotlib.pyplot as plt
 
 from casme.model_basics import icasme_load_model, get_infilled
 from casme.utils import get_binarized_mask, get_masked_images, inpaint, permute_image
 
 
-matplotlib.use('Agg')
-
-parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data', metavar='DIR',
-                    help='path to dataset')
-parser.add_argument('--casm-path', default='',
-                    help='path to model that generate masks')
-
-parser.add_argument('--workers', default=4, type=int, metavar='N',
-                    help='number of data loading workers (default: 4)')
-parser.add_argument('--resize', default=256, type=int,
-                    help='resize parameter (default: 256)')
-parser.add_argument('-b', '--batch-size', default=128, type=int,
-                    help='mini-batch size (default: 128)')
-
-parser.add_argument('--columns', default=7, type=int,
-                    help='number of consecutive images plotted together,'
-                         ' one per column (default: 7, recommended 4 to 7)')
-parser.add_argument('--plots', default=16, type=int,
-                    help='number of different plots generated (default: 16, -1 to generate all of them)')
-parser.add_argument('--seed', default=931001, type=int,
-                    help='random seed that is used to select images')
-parser.add_argument('--plots-path', default='',
-                    help='directory for plots')
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-args = parser.parse_args()
-
-if args.columns > args.batch_size:
-    args.columns = args.batch_size
-
-
-def main():
-    global args
+def main(args):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     mean = np.array([0.485, 0.456, 0.406])
     std = np.array([0.229, 0.224, 0.225])
@@ -89,7 +55,7 @@ def main():
         # === get mask and masked images
         binary_mask, soft_mask = get_binarized_mask(normalized_input, model)
         soft_masked_image = normalized_input * soft_mask
-        generated, infilled = get_infilled(input_, soft_mask, model["infiller"])
+        generated, infilled = get_infilled(normalized_input, soft_mask, model["infiller"])
 
         for j in range(soft_masked_image.size(0)):
             denormalize(soft_masked_image[j])
@@ -132,5 +98,36 @@ def main():
         print('plotted to {}.'.format(path))
 
 
+def get_args(*raw_args):
+    parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+    parser.add_argument('data', metavar='DIR',
+                        help='path to dataset')
+    parser.add_argument('--casm-path', default='',
+                        help='path to model that generate masks')
+
+    parser.add_argument('--workers', default=4, type=int, metavar='N',
+                        help='number of data loading workers (default: 4)')
+    parser.add_argument('--resize', default=256, type=int,
+                        help='resize parameter (default: 256)')
+    parser.add_argument('-b', '--batch-size', default=128, type=int,
+                        help='mini-batch size (default: 128)')
+
+    parser.add_argument('--columns', default=7, type=int,
+                        help='number of consecutive images plotted together,'
+                             ' one per column (default: 7, recommended 4 to 7)')
+    parser.add_argument('--plots', default=16, type=int,
+                        help='number of different plots generated (default: 16, -1 to generate all of them)')
+    parser.add_argument('--seed', default=931001, type=int,
+                        help='random seed that is used to select images')
+    parser.add_argument('--plots-path', default='',
+                        help='directory for plots')
+
+    args = parser.parse_args(*raw_args)
+
+    if args.columns > args.batch_size:
+        args.columns = args.batch_size
+    return args
+
+
 if __name__ == '__main__':
-    main()
+    main(get_args())

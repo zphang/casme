@@ -231,6 +231,7 @@ class InfillerCASMERunner(BaseRunner):
                  classifier, masker, infiller,
                  classifier_optimizer, masker_optimizer, infiller_optimizer,
                  classifier_criterion, masker_criterion, infiller_criterion,
+                 train_infiller,
                  fixed_classifier, perc_of_training, prob_historic, save_freq, zoo_size,
                  image_normalization_mode,
                  add_prob_layers, prob_sample_low, prob_sample_high,
@@ -249,6 +250,7 @@ class InfillerCASMERunner(BaseRunner):
         self.classifier_criterion = classifier_criterion.to(device)
         self.masker_criterion = masker_criterion.to(device)
         self.infiller_criterion = infiller_criterion.to(device)
+        self.train_infiller = train_infiller
 
         self.fixed_classifier = fixed_classifier
         self.perc_of_training = perc_of_training
@@ -360,16 +362,19 @@ class InfillerCASMERunner(BaseRunner):
             # compute mask and masked input
             mask = self.masker(layers, use_p=use_p)
             masked_x = self.apply_mask_func(x=x, mask=mask)
-            generated = self.infiller(masked_x.detach(), mask.detach())
+
+            # Compute infill (generate using detached mask, infill using real mask)
+            with torch.set_grad_enabled(self.train_infiller):
+                generated = self.infiller(masked_x.detach(), mask.detach())
+
             infilled = criterion.default_infill_func(masked_x, mask, generated)
-            infilled_detached = infilled.detach()
 
             # update statistics
             log_containers.statistics.update(mask)
 
             # randomly select classifier to be evaluated on masked image and compute output
             if (not is_train) or self.fixed_classifier or (random.random() > self.prob_historic):
-                y_hat_from_masked_x = self.classifier(infilled_detached)
+                y_hat_from_masked_x = self.classifier(infilled)
                 update_classifier = not self.fixed_classifier
             else:
                 if self.classifier_for_mask is None:
@@ -377,7 +382,7 @@ class InfillerCASMERunner(BaseRunner):
                 index = random.randint(0, len(self.classifier_zoo) - 1)
                 self.classifier_for_mask.load_state_dict(self.classifier_zoo[index])
                 self.classifier_for_mask.eval()
-                y_hat_from_masked_x = self.classifier_for_mask(infilled_detached)
+                y_hat_from_masked_x = self.classifier_for_mask(infilled)
                 update_classifier = False
 
             classifier_loss_from_masked_x = self.classifier_criterion(y_hat_from_masked_x, y)
@@ -404,10 +409,13 @@ class InfillerCASMERunner(BaseRunner):
             self.masker_optimizer.step()
 
             self.infiller_optimizer.zero_grad()
-            infiller_loss = self.infiller_criterion(infilled, x)
-            infiller_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.infiller_criterion.parameters(), 10)
-            self.infiller_optimizer.step()
+            with torch.set_grad_enabled(self.train_infiller):
+                infiller_loss = self.infiller_criterion(infilled, x)
+
+            if self.train_infiller:
+                infiller_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.infiller_criterion.parameters(), 10)
+                self.infiller_optimizer.step()
 
             # update casme - compute gradient, do SGD step
             log_containers.masker_total_loss.update(masker_total_loss.item(), x.size(0))

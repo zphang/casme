@@ -1,4 +1,5 @@
 import math
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -463,6 +464,92 @@ class InfillerCNN(nn.Module):
     def init_weights(self):
         for conv_layer in list(self.down_ls) + list(self.up_ls):
             torch.nn.init.xavier_uniform_(conv_layer.weight)
+
+
+class CAInfillerWrapper(nn.Module):
+    def __init__(self, iproc):
+        super().__init__()
+        self.iproc = iproc
+
+        from generative_inpainting_pytorch.model.networks import Generator
+        self.generator = Generator(
+            config={
+                "input_dim": 5,
+                "ngf": 32,
+            },
+            use_cuda=True,
+            device_ids=[0],
+        )
+        self.generator.load_state_dict(torch.load(
+            "/gpfs/data/geraslab/zphang/working/190504_infill/pretrained_models/torch_model_generator.p"
+        ))
+
+    def forward(self, masked_x, mask):
+        # masked_x: normalize from [0, 1]
+        # mask: 1 = selected region
+
+        # generator input: [0, 255] / 127.5 - 1
+        input_x = self.iproc.denorm_tensor(masked_x) * 255/127.5 - 1
+        input_x = input_x * (1 - mask)
+        _, raw_result, _ = self.generator(
+            x=input_x,
+            mask=mask,
+        )
+        result = self.iproc.norm_tensor((raw_result + 1) * 127.5/255)
+        return result
+
+
+class ImageProc(nn.Module):
+    def __init__(self, mean, std):
+        super().__init__()
+        self.mean = mean
+        self.std = std
+        self.mean_tensor = nn.Parameter(
+            torch.FloatTensor(self.mean).unsqueeze(0).unsqueeze(-1).unsqueeze(-1),
+            requires_grad=False,
+        )
+        self.std_tensor = nn.Parameter(
+            torch.FloatTensor(self.std).unsqueeze(0).unsqueeze(-1).unsqueeze(-1),
+            requires_grad=False,
+        )
+
+    def forward(self):
+        pass
+
+    def norm(self, x):
+        return (x - self.mean) / self.std
+
+    def denorm(self, x):
+        return x * self.std + self.mean
+
+    def norm_tensor(self, x):
+        return (x - self.mean_tensor) / self.std_tensor
+
+    def denorm_tensor(self, x):
+        return x * self.std_tensor + self.mean_tensor
+
+
+def get_infiller(infiller_model):
+    if infiller_model == "cnn":
+        return InfillerCNN(
+            4, 3, [32, 64, 128, 256],
+        )
+    elif infiller_model == "ca_infiller":
+        return CAInfillerWrapper(ImageProc(
+            mean=np.array([0.485, 0.456, 0.406]),
+            std=np.array([0.229, 0.224, 0.225]),
+        ))
+    else:
+        raise KeyError(infiller_model)
+
+
+def should_train_infiller(infiller_model):
+    if infiller_model == "cnn":
+        return True
+    elif infiller_model == "ca_infiller":
+        return False
+    else:
+        raise KeyError(infiller_model)
 
 
 def masker(**kwargs):

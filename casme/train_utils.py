@@ -31,7 +31,7 @@ def single_adjust_learning_rate(optimizer, epoch, lr, lrde):
 
 
 def save_checkpoint(state, args):
-    filename = (args.casms_path + '.chk')
+    filename = (args.casms_path + '_epoch_{:03d}'.format(state["epoch"]) + '.chk')
     torch.save(state, filename)
 
 

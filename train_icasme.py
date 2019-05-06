@@ -33,9 +33,7 @@ def main(args):
         masker.parameters(), args.lr_casme,
         weight_decay=args.weight_decay,
     )
-    infiller = archs.InfillerCNN(
-        4, 3, [32, 64, 128, 256],
-    ).to(device)
+    infiller = archs.get_infiller(args.infiller_model).to(device)
     infiller_optimizer = torch.optim.Adam(
         infiller.parameters(), args.lr_infiller,
         weight_decay=args.weight_decay,
@@ -109,6 +107,7 @@ def main(args):
         classifier_optimizer=classifier_optimizer,
         masker_optimizer=masker_optimizer,
         infiller_optimizer=infiller_optimizer,
+        train_infiller=archs.should_train_infiller(args.infiller_model),
         classifier_criterion=nn.CrossEntropyLoss(),
         masker_criterion=masker_criterion,
         infiller_criterion=infiller_criterion,
@@ -157,6 +156,7 @@ def main(args):
             'optimizer_masker': masker_optimizer.state_dict(),
             'optimizer_infiller': infiller_optimizer.state_dict(),
             'args': args,
+            'infiller_model': args.infiller_model,
         }, args)
 
         # log
@@ -231,6 +231,7 @@ def get_args(*raw_args):
     parser.add_argument('--prob-sample-high', default=0.75, type=float)
     parser.add_argument('--prob-loss-func', default="l1")
     parser.add_argument('--casme-load-path', default=None, type=str)
+    parser.add_argument('--infiller-model', default="cnn", type=str)
 
     args = parser.parse_args(*raw_args)
     set_args(args)

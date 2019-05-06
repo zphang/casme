@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 
 import torch
+import torch.nn as nn
 import torchvision.transforms as transforms
 
 from casme.model_basics import binarize_mask, get_mask
@@ -70,18 +71,6 @@ def per_image_normalization(x, mode):
     else:
         raise KeyError(mode)
     return normalized_x
-
-
-class ImageProc:
-    def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
-
-    def norm(self, x):
-        return (x - self.mean) / self.std
-
-    def denorm(self, x):
-        return x * self. std + self.mean
 
 
 def count_params(module):

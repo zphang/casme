@@ -61,9 +61,7 @@ def icasme_load_model(casm_path):
     masker.eval().to(device)
     print("=> Model loaded.")
 
-    infiller = archs.InfillerCNN(
-        4, 3, [32, 64, 128, 256],
-    )
+    infiller = archs.get_infiller(checkpoint.get("infiller_model", "cnn"))
     infiller.load_state_dict(checkpoint['state_dict_infiller'])
     infiller.eval().to(device)
 
@@ -81,7 +79,7 @@ def get_masks_and_check_predictions(input, target, model):
         for id in range(mask.size(0)):
             if rectangular[id].sum() == 0:
                 continue
-            rectangular[id] = get_rectangular_mask(rectangular[id].squeeze().numpy())
+            rectangular[id] = get_rectangular_mask(rectangular[id].squeeze().cpu().numpy())
 
         target = target.to(device)
         _, max_indexes = output.data.max(1)

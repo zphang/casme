@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import glob
 import numpy as np
 import os
+import json
 import time
 
 import torch
@@ -10,7 +11,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 from casme.stats import AverageMeter, StatisticsContainer
-from casme.model_basics import load_model, get_masks_and_check_predictions
+from casme.model_basics import old_load_model, icasme_load_model, get_masks_and_check_predictions
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',
@@ -40,6 +41,9 @@ parser.add_argument('--save-to-file', action='store_true',
 parser.add_argument('--log-path', default='',
                     help='directory for results (use save-to-file flag to save results)')
 
+parser.add_argument('--final-write-path', default=None)
+parser.add_argument('--icasme', action='store_true')
+
 args = parser.parse_args()
 
 print('Args:', args)
@@ -47,14 +51,16 @@ string_args = ''
 for name in sorted(vars(args)):
     string_args += name + '=' + str(getattr(args, name)) + ', '
 
+
 class ImageFolderWithPaths(datasets.ImageFolder):
     def __getitem__(self, index):
         return super(ImageFolderWithPaths, self).__getitem__(index), self.imgs[index][0]
 
+
 def main():
     global args
 
-    ## data loading code
+    # data loading code
     normalize = transforms.Normalize(mean=[0,0,0] if args.not_normalize else [0.485, 0.456, 0.406],
                                      std=[1,1,1] if args.not_normalize else [0.229, 0.224, 0.225])
 
@@ -68,21 +74,28 @@ def main():
         ])),
         batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
 
-    ## get score for special cases
+    # get score for special cases
     results = {}
     if args.toy:
         results['max'] = score(os.path.join(args.log_path, 'max'), {'special': 'max'}, data_loader, args.annotation_path)
         results['center'] = score(os.path.join(args.log_path, 'center'), {'special': 'center'}, data_loader, args.annotation_path)
 
-    ## get score for models
+    # get score for models
     for casm_path in glob.glob(os.path.join(args.casms_path, '*.*')):
-        model = load_model(casm_path)
+        if args.icasme:
+            model = icasme_load_model(casm_path)
+        else:
+            model = old_load_model(casm_path)
         results[model['name']] = score(os.path.join(args.log_path, model['name']), model, data_loader, args.annotation_path)
 
     print(results)
+    if args.final_write_path:
+        with open(args.final_write_path, "w") as f:
+            f.write(json.dumps(results, indent=2))
+
 
 def score(output_path, model, data_loader, ann_paths):
-    ## create an empty file and skip the evaluation if the file exists
+    # create an empty file and skip the evaluation if the file exists
     if args.save_to_file:
         if os.path.isfile(output_path):
             print("=> Output ({}) exists. Skipping.".format(output_path))
@@ -92,7 +105,7 @@ def score(output_path, model, data_loader, ann_paths):
     if 'special' in model.keys():
         print("=> Special mode evaluation: {}.".format(model['special']))
 
-    ## setup meters
+    # setup meters
     batch_time = 0
     data_time = 0
     F1 = AverageMeter()
@@ -103,7 +116,7 @@ def score(output_path, model, data_loader, ann_paths):
 
     end = time.time()
 
-    ## data loop
+    # data loop
     for i, ((input, target), paths) in enumerate(data_loader):
         if i > len(data_loader)*args.pot:
             break
@@ -112,7 +125,7 @@ def score(output_path, model, data_loader, ann_paths):
 
         input, target = input.numpy(), target.numpy()
 
-        ## compute continuous mask, rectangular mask and compare class predictions with targets
+        # compute continuous mask, rectangular mask and compare class predictions with targets
         if 'special' in model.keys():
             isCorrect = target.ge(0).numpy()
             if model['special'] == 'max':
@@ -125,12 +138,12 @@ def score(output_path, model, data_loader, ann_paths):
         else:
             continuous, rectangular, isCorrect = get_masks_and_check_predictions(input, target, model)
 
-        ## update statistics
+        # update statistics
         statistics.update(torch.tensor(continuous).unsqueeze(1))
 
-        ## image loop
+        # image loop
         for id, path in enumerate(paths):
-            ## get basic image properties
+            # get basic image properties
             ann_path = os.path.join(ann_paths,os.path.basename(path)).split('.')[0]+'.xml'
 
             if not os.path.isfile(ann_path):
@@ -147,12 +160,12 @@ def score(output_path, model, data_loader, ann_paths):
 
             category = path.split('/')[-2]
 
-            ## get ground truth boxes positions in the original resolution
+            # get ground truth boxes positions in the original resolution
             gt_boxes = get_ground_truth_boxes(anno, category)
-            ## get ground truth boxes positions in the resized resolution
+            # get ground truth boxes positions in the resized resolution
             gt_boxes = get_resized_pos(gt_boxes, width, height, args.break_ratio)
 
-            ## compute localization metrics
+            # compute localization metrics
             F1s_for_image = []
             IOUs_for_image = []
             for gt_box in gt_boxes:
@@ -166,11 +179,11 @@ def score(output_path, model, data_loader, ann_paths):
             LE.update(1 - np.array(IOUs_for_image).max())
             OM.update(1 - (np.array(IOUs_for_image).max() * isCorrect[id]))
 
-        ## measure elapsed time
+        # measure elapsed time
         batch_time += time.time() - end
         end = time.time()
 
-        ## print log
+        # print log
         if i % args.print_freq == 0 and i > 0:
             print('[{0}/{1}]\t'
                   'Time {batch_time:.3f}\t'
@@ -181,7 +194,7 @@ def score(output_path, model, data_loader, ann_paths):
                   'LE {LE.avg:.3f} ({LE.val:.3f})'.format(
                       i, len(data_loader), batch_time=batch_time, data_time=data_time,
                       F1=F1, F1a=F1a, OM=OM, LE=LE), flush=True)
-            statistics.printOut()
+            statistics.print_out()
 
     print('Final:\t'
           'Time {batch_time:.3f}\t'
@@ -190,11 +203,11 @@ def score(output_path, model, data_loader, ann_paths):
           'F1a {F1a.avg:.3f} ({F1a.val:.3f})\t'
           'OM {OM.avg:.3f} ({OM.val:.3f})\t'
           'LE {LE.avg:.3f} ({LE.val:.3f})'.format(
-              i, len(data_loader), batch_time=batch_time, data_time=data_time,
+              batch_time=batch_time, data_time=data_time,
               F1=F1, F1a=F1a, OM=OM, LE=LE), flush=True)
-    statistics.printOut()
+    statistics.print_out()
 
-    results = {'F1': F1.avg, 'F1a': F1a.avg, 'OM': OM.avg, 'LE': LE.avg, **statistics.getDictionary()}
+    results = {'F1': F1.avg, 'F1a': F1a.avg, 'OM': OM.avg, 'LE': LE.avg, **statistics.get_dictionary()}
 
     if args.save_to_file:
         with open(output_path, 'a') as f:
@@ -202,6 +215,7 @@ def score(output_path, model, data_loader, ann_paths):
             f.write('\n'+string_args)
 
     return results
+
 
 def get_ground_truth_boxes(anno, category):
     boxes = []
@@ -224,12 +238,14 @@ def get_ground_truth_boxes(anno, category):
 
     return boxes
 
+
 def get_resized_pos(gt_boxes, width, height, break_ratio):
     resized_boxes = []
     for box in gt_boxes:
         resized_boxes.append(resize_pos(box, width, height, break_ratio))
 
     return resized_boxes
+
 
 def resize_pos(raw_pos, width, height, break_ratio):
     if break_ratio:
@@ -256,6 +272,7 @@ def resize_pos(raw_pos, width, height, break_ratio):
 
     return [int(x) for x in semi_cor_pos]
 
+
 def get_loc_scores(cor_pos, continuous_mask, rectangular_mask):
     xmin, ymin, xmax, ymax = cor_pos
     gt_box_size = (xmax - xmin)*(ymax - ymin)
@@ -273,6 +290,7 @@ def get_loc_scores(cor_pos, continuous_mask, rectangular_mask):
 
     return F1, 1*(IOU > 0.5)
 
+
 def clip(x, a, b):
     if x < a:
         return a
@@ -280,6 +298,7 @@ def clip(x, a, b):
         return b
 
     return x
+
 
 def compute_f1(m, gt_box, gt_box_size):
     with torch.no_grad():
@@ -289,11 +308,13 @@ def compute_f1(m, gt_box, gt_box_size):
 
         return (2 * precision * recall)/(precision + recall + 1e-6)
 
+
 def compute_iou(m, gt_box, gt_box_size):
     with torch.no_grad():
         intersection = (m*gt_box).sum()
 
         return (intersection / (m.sum() + gt_box_size - intersection))
+
 
 if __name__ == '__main__':
     main()
