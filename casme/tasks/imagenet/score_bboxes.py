@@ -1,5 +1,4 @@
 import argparse
-from bs4 import BeautifulSoup
 import numpy as np
 import os
 import json
@@ -49,18 +48,21 @@ def main(args):
     else:
         raise KeyError(args.mode)
 
+    with open(args.bboxes_path, "r") as f:
+        bboxes = json.loads(f.read())
+
     results = score(
         args=args,
         model=model,
         data_loader=data_loader,
-        ann_paths=args.annotation_path,
+        bboxes=bboxes,
     )
 
     with open(args.output_path, "w") as f:
         f.write(json.dumps(results, indent=2))
 
 
-def score(args, model, data_loader, ann_paths):
+def score(args, model, data_loader, bboxes):
     if 'special' in model.keys():
         print("=> Special mode evaluation: {}.".format(model['special']))
 
@@ -90,10 +92,12 @@ def score(args, model, data_loader, ann_paths):
             if model['special'] == 'max':
                 continuous = np.ones((args.batch_size, 224, 224))
                 rectangular = continuous
-            if model['special'] == 'center':
+            elif model['special'] == 'center':
                 continuous = np.zeros((args.batch_size, 224, 224))
                 continuous[:, :, 33:-33, 33:-33] = 1
                 rectangular = continuous
+            else:
+                raise KeyError(model["special"])
         else:
             continuous, rectangular, is_correct = get_masks_and_check_predictions(input_, target, model)
 
@@ -102,27 +106,7 @@ def score(args, model, data_loader, ann_paths):
 
         # image loop
         for idx, path in enumerate(paths):
-            # get basic image properties
-            ann_path = os.path.join(ann_paths, os.path.basename(path)).split('.')[0] + '.xml'
-
-            if not os.path.isfile(ann_path):
-                print("Annotations aren't found. Aborting!")
-                return
-
-            with open(ann_path) as f:
-                xml = f.readlines()
-            anno = BeautifulSoup(''.join([line.strip('\t') for line in xml]), "html5lib")
-
-            size = anno.findChildren('size')[0]
-            width = int(size.findChildren('width')[0].contents[0])
-            height = int(size.findChildren('height')[0].contents[0])
-
-            category = path.split('/')[-2]
-
-            # get ground truth boxes positions in the original resolution
-            gt_boxes = get_ground_truth_boxes(anno, category)
-            # get ground truth boxes positions in the resized resolution
-            gt_boxes = get_resized_pos(gt_boxes, width, height, args.break_ratio)
+            gt_boxes = bboxes[os.path.basename(path).split('.')[0]]
 
             # compute localization metrics
             f1s_for_image = []
@@ -175,67 +159,11 @@ def score(args, model, data_loader, ann_paths):
     return results
 
 
-def get_ground_truth_boxes(anno, category):
-    boxes = []
-    objs = anno.findAll('object')
-    for obj in objs:
-        obj_names = obj.findChildren('name')
-        for name_tag in obj_names:
-            if str(name_tag.contents[0]) == category:
-                # fname = anno.findChild('filename').contents[0]
-                bbox = obj.findChildren('bndbox')[0]
-                xmin = int(bbox.findChildren('xmin')[0].contents[0])
-                ymin = int(bbox.findChildren('ymin')[0].contents[0])
-                xmax = int(bbox.findChildren('xmax')[0].contents[0])
-                ymax = int(bbox.findChildren('ymax')[0].contents[0])
-
-                boxes.append([xmin, ymin, xmax, ymax])
-            else:
-                print("Aborting!")
-                return
-
-    return boxes
-
-
-def get_resized_pos(gt_boxes, width, height, break_ratio):
-    resized_boxes = []
-    for box in gt_boxes:
-        resized_boxes.append(resize_pos(box, width, height, break_ratio))
-
-    return resized_boxes
-
-
-def resize_pos(raw_pos, width, height, break_ratio):
-    if break_ratio:
-        ratio_x = 224/width
-        ratio_y = 224/height
-        xcut = 0
-        ycut = 0
-    else:
-        if width > height:
-            ratio_x = 224/height
-            ratio_y = 224/height
-            xcut = (width*ratio_x - 224) / 2
-            ycut = 0
-        else:
-            ratio_x = 224/width
-            ratio_y = 224/width
-            xcut = 0
-            ycut = (height*ratio_y - 224) / 2
-
-    semi_cor_pos = [(ratio_x*raw_pos[0] - xcut),
-                    (ratio_y*raw_pos[1] - ycut),
-                    (ratio_x*raw_pos[2] - xcut),
-                    (ratio_y*raw_pos[3] - ycut)]
-
-    return [int(x) for x in semi_cor_pos]
-
-
 def get_loc_scores(cor_pos, continuous_mask, rectangular_mask):
-    xmin, ymin, xmax, ymax = cor_pos
+    xmin, ymin, xmax, ymax = cor_pos["xmin"], cor_pos["ymin"], cor_pos["xmax"], cor_pos["ymax"]
     gt_box_size = (xmax - xmin)*(ymax - ymin)
 
-    xmin_c, ymin_c, xmax_c, ymax_c = [clip(x, 0, 224) for x in cor_pos]
+    xmin_c, ymin_c, xmax_c, ymax_c = [clip(z, 0, 224) for z in [xmin, ymin, xmax, ymax]]
 
     if xmin_c == xmax_c or ymin_c == ymax_c:
         return 0, 0
@@ -278,21 +206,19 @@ def get_args():
     parser.add_argument('data', metavar='DIR',
                         help='path to dataset')
     parser.add_argument('--mode')
-    parser.add_argument('--annotation-path', default='',
-                        help='path to annotations')
-    parser.add_argument('--casm-path', default='',
-                        help='model_checkpoint')
-    parser.add_argument('--output-path')
+    parser.add_argument('--bboxes_path', help='path to bboxes_json')
+    parser.add_argument('--casm_path', help='model_checkpoint')
+    parser.add_argument('--output_path')
 
     parser.add_argument('--workers', default=4, type=int,
                         help='number of data loading workers (default: 4)')
-    parser.add_argument('-b', '--batch-size', default=128, type=int,
+    parser.add_argument('-b', '--batch_size', default=128, type=int,
                         help='mini-batch size (default: 256)')
-    parser.add_argument('--print-freq', default=10, type=int,
+    parser.add_argument('--print_freq', default=10, type=int,
                         help='print frequency (default: 10)')
-    parser.add_argument('--break-ratio', action='store_true',
+    parser.add_argument('--break_ratio', action='store_true',
                         help='break original aspect ratio when resizing')
-    parser.add_argument('--not-normalize', action='store_true',
+    parser.add_argument('--not_normalize', action='store_true',
                         help='prevents normalization')
 
     parser.add_argument('--pot', default=1, type=float,

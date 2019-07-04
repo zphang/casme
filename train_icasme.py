@@ -108,6 +108,7 @@ def main(args):
         masker_optimizer=masker_optimizer,
         infiller_optimizer=infiller_optimizer,
         train_infiller=archs.should_train_infiller(args.infiller_model),
+        shuffle_infiller_masks=args.shuffle_infiller_masks,
         classifier_criterion=nn.CrossEntropyLoss(),
         masker_criterion=masker_criterion,
         infiller_criterion=infiller_criterion,
@@ -232,6 +233,7 @@ def get_args(*raw_args):
     parser.add_argument('--prob-loss-func', default="l1")
     parser.add_argument('--casme-load-path', default=None, type=str)
     parser.add_argument('--infiller-model', default="cnn", type=str)
+    parser.add_argument('--shuffle-infiller-masks', action="store_true")
 
     args = parser.parse_args(*raw_args)
     set_args(args)

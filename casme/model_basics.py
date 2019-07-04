@@ -22,7 +22,7 @@ MODEL_PARAMETERS = {
 }
 
 
-def old_load_model(casm_path):
+def casme_load_model(casm_path):
     name = casm_path.split('/')[-1].replace('.chk', '')
 
     print("\n=> Loading model localized in '{}'".format(casm_path))

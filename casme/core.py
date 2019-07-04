@@ -231,7 +231,7 @@ class InfillerCASMERunner(BaseRunner):
                  classifier, masker, infiller,
                  classifier_optimizer, masker_optimizer, infiller_optimizer,
                  classifier_criterion, masker_criterion, infiller_criterion,
-                 train_infiller,
+                 train_infiller, shuffle_infiller_masks,
                  fixed_classifier, perc_of_training, prob_historic, save_freq, zoo_size,
                  image_normalization_mode,
                  add_prob_layers, prob_sample_low, prob_sample_high,
@@ -251,6 +251,7 @@ class InfillerCASMERunner(BaseRunner):
         self.masker_criterion = masker_criterion.to(device)
         self.infiller_criterion = infiller_criterion.to(device)
         self.train_infiller = train_infiller
+        self.shuffle_infiller_masks = shuffle_infiller_masks
 
         self.fixed_classifier = fixed_classifier
         self.perc_of_training = perc_of_training
@@ -364,7 +365,7 @@ class InfillerCASMERunner(BaseRunner):
             masked_x = self.apply_mask_func(x=x, mask=mask)
 
             # Compute infill (generate using detached mask, infill using real mask)
-            with torch.set_grad_enabled(self.train_infiller):
+            with torch.set_grad_enabled(self.train_infiller and not self.shuffle_infiller_masks):
                 generated = self.infiller(masked_x.detach(), mask.detach())
 
             infilled = criterion.default_infill_func(masked_x, mask, generated)
@@ -410,6 +411,11 @@ class InfillerCASMERunner(BaseRunner):
 
             self.infiller_optimizer.zero_grad()
             with torch.set_grad_enabled(self.train_infiller):
+                if self.shuffle_infiller_masks:
+                    shuf_mask = torch.flip(mask.detach(), dims=[0])
+                    shuf_masked_x = self.apply_mask_func(x=x, mask=shuf_mask)
+                    generated = self.infiller(shuf_masked_x.detach(), shuf_mask.detach())
+                    infilled = criterion.default_infill_func(shuf_masked_x, shuf_mask, generated)
                 infiller_loss = self.infiller_criterion(infilled, x)
 
             if self.train_infiller:

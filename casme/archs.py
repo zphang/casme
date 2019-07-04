@@ -499,6 +499,15 @@ class CAInfillerWrapper(nn.Module):
         return result
 
 
+class DummyInfiller(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.dummy = nn.Linear(1, 1)
+
+    def forward(self, masked_x, mask):
+        return masked_x * 0
+
+
 class ImageProc(nn.Module):
     def __init__(self, mean, std):
         super().__init__()
@@ -539,6 +548,8 @@ def get_infiller(infiller_model):
             mean=np.array([0.485, 0.456, 0.406]),
             std=np.array([0.229, 0.224, 0.225]),
         ))
+    elif infiller_model == "dummy":
+        return DummyInfiller()
     else:
         raise KeyError(infiller_model)
 
@@ -547,6 +558,8 @@ def should_train_infiller(infiller_model):
     if infiller_model == "cnn":
         return True
     elif infiller_model == "ca_infiller":
+        return False
+    elif infiller_model == "dummy":
         return False
     else:
         raise KeyError(infiller_model)
