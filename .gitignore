@@ -106,3 +106,4 @@ venv.bak/
 # Jason
 sync.sh
 .zsync.conf
+.zsync.json
