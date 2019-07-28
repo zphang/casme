@@ -102,7 +102,19 @@ class MaskerCriterion(nn.Module):
         mistaken_on_masked = y.ne(max_indexes_on_masked_x)
         nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
 
-        mask_mean = mask.mean(dim=3).mean(dim=2)
+        """
+        import os
+        if os.environ["AVGMODE"] == "fpool":
+            mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
+        elif os.environ["AVGMODE"] == "meandim":
+            mask_mean = mask.mean(dim=3).mean(dim=2)
+        elif os.environ["AVGMODE"] == "meandimsqueeze":
+            mask_mean = mask.mean(dim=3).mean(dim=2).squeeze()
+        else:
+            raise Exception()
+        """
+        #mask_mean = mask.mean(dim=3).mean(dim=2).squeeze()
+        mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
         if self.add_prob_layers:
             # adjust to minimize deviation from p
             mask_mean = (mask_mean - use_p)
@@ -170,6 +182,8 @@ class MaskerCriterion(nn.Module):
                 "loss": loss,
                 "regularization": regularization,
             }
+        if not self.adversarial:
+            metadata["negative_entropy"] = negative_entropy
         return masker_loss, metadata
 
 
@@ -215,7 +229,7 @@ class MaskerPriorCriterion(nn.Module):
         mistaken_on_masked = y.ne(max_indexes_on_masked_x)
         nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
 
-        mask_mean = mask.mean(dim=3).mean(dim=2).squeeze(1)
+        mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
         if self.add_prob_layers:
             # adjust to minimize deviation from p
             mask_mean = (mask_mean - use_p)
@@ -335,7 +349,7 @@ class MaskerInfillerPriorCriterion(nn.Module):
         mistaken_on_masked = y.ne(max_indexes_on_modified_x)
         nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
 
-        mask_mean = mask.mean(dim=3).mean(dim=2)
+        mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
         if self.add_prob_layers:
             # adjust to minimize deviation from p
             print("A", mask_mean.mean())

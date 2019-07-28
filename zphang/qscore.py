@@ -11,7 +11,8 @@ def main(args):
     if args.mode not in ("center", "max"):
         args.casm_path = utils.find_best_model(args.base_path)
     print("Scoring {}".format(args.casm_path))
-    args.output_path = os.path.join(args.base_path, "score.json")
+    if not args.output_path:
+        args.output_path = os.path.join(args.base_path, "score.json")
     score_main(args)
 
 
@@ -19,6 +20,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('mode')
     parser.add_argument('base_path')
+    parser.add_argument('-o', '--output_path', default=None)
 
     parser.add_argument('--workers', default=4, type=int,
                         help='number of data loading workers (default: 4)')

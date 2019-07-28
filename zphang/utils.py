@@ -2,7 +2,7 @@ import glob
 
 
 def find_best_model(base_path):
-    path_ls = sorted(glob.glob("{}/save/*.chk".format(base_path)))
+    path_ls = sorted(glob.glob("{}/*.chk".format(base_path)))
     if len(path_ls) == 1:
         path = path_ls[0]
     else:

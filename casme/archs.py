@@ -499,6 +499,40 @@ class CAInfillerWrapper(nn.Module):
         return result
 
 
+class DFNInfillerWrapper(nn.Module):
+    def __init__(self, iproc):
+        super().__init__()
+        self.iproc = iproc
+        from casme.ext.dfnet import DFNet
+        self.model = DFNet()
+        self.model.load_state_dict(torch.load(
+            "/gpfs/data/geraslab/zphang/code/DFNet/model/model_places2.pth",
+            map_location=torch.device("cpu"),
+        ))
+        self.model.eval()
+
+    def forward(self, masked_x, mask):
+        # masked_x: normalize from [0, 1]
+        # mask: 1 = selected region
+        # Resize
+        masked_x = F.interpolate(masked_x, 256, mode="bilinear")
+        mask = F.interpolate(mask, 256, mode="bilinear")
+
+        # desired input: [0, 1]
+        # desired mask: [0, 1], 0 = masked out
+        input_x = self.iproc.denorm_tensor(masked_x)
+        mask_out = 1 - mask
+        imgs_miss = input_x * mask_out
+
+        result, alpha, raw = self.model(imgs_miss, mask_out)
+        result, alpha, raw = result[0], alpha[0], raw[0]
+        result = imgs_miss + result * mask
+
+        result = F.interpolate(result, 224, mode="bilinear")
+        result = self.iproc.norm_tensor(result)
+        return result
+
+
 class DummyInfiller(nn.Module):
     def __init__(self):
         super().__init__()
@@ -548,6 +582,11 @@ def get_infiller(infiller_model):
             mean=np.array([0.485, 0.456, 0.406]),
             std=np.array([0.229, 0.224, 0.225]),
         ))
+    elif infiller_model == "dfn_infiller":
+        return DFNInfillerWrapper(ImageProc(
+            mean=np.array([0.485, 0.456, 0.406]),
+            std=np.array([0.229, 0.224, 0.225]),
+        ))
     elif infiller_model == "dummy":
         return DummyInfiller()
     else:
@@ -558,6 +597,8 @@ def should_train_infiller(infiller_model):
     if infiller_model == "cnn":
         return True
     elif infiller_model == "ca_infiller":
+        return False
+    elif infiller_model == "dfn_infiller":
         return False
     elif infiller_model == "dummy":
         return False

@@ -236,7 +236,10 @@ def get_args(*raw_args):
     parser.add_argument('--shuffle-infiller-masks', action="store_true")
 
     args = parser.parse_args(*raw_args)
+    if not args.log_path:
+        args.log_path = args.casms_path
     set_args(args)
+
 
     return args
 

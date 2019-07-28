@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.ndimage
+from scipy.ndimage.morphology import binary_dilation, binary_erosion
 
 import torch
 
@@ -36,7 +37,13 @@ def casme_load_model(casm_path):
         add_prob_layers=getattr(checkpoint["args"], "add_prob_layers", None)
     )
     print(checkpoint["args"])
-    masker.load_state_dict(checkpoint['state_dict_masker'])
+    if 'state_dict_masker' in checkpoint:
+        masker.load_state_dict(checkpoint['state_dict_masker'])
+    elif 'state_dict_decoder' in checkpoint:
+        masker.load_state_dict(checkpoint['state_dict_decoder'])
+        print("Using old format")
+    else:
+        raise KeyError()
     masker.eval().to(device)
     print("=> Model loaded.")
 
@@ -69,7 +76,7 @@ def icasme_load_model(casm_path):
             'name': name}
 
 
-def get_masks_and_check_predictions(input, target, model):
+def get_masks_and_check_predictions(input, target, model, erode_k=0, dilate_k=0):
     with torch.no_grad():
         input, target = torch.tensor(input), torch.tensor(target)
         mask, output = get_mask(input, model, get_output=True)
@@ -79,7 +86,13 @@ def get_masks_and_check_predictions(input, target, model):
         for id in range(mask.size(0)):
             if rectangular[id].sum() == 0:
                 continue
-            rectangular[id] = get_rectangular_mask(rectangular[id].squeeze().cpu().numpy())
+
+            m = rectangular[id].squeeze().cpu().numpy()
+            if erode_k != 0:
+                m = binary_erosion(m, iterations=erode_k, border_value=1)
+            if dilate_k != 0:
+                m = binary_dilation(m, iterations=dilate_k)
+            rectangular[id] = get_rectangular_mask(m)
 
         target = target.to(device)
         _, max_indexes = output.data.max(1)
@@ -147,3 +160,20 @@ def get_bounding_box(m):
 
 def get_rectangular_mask(m):
     return get_bounding_box(get_largest_connected(m))
+
+
+def get_pred_bounding_box(rect):
+    raw_x = np.arange(224)[rect.any(axis=0).astype(bool)]
+    raw_y = np.arange(224)[rect.any(axis=1).astype(bool)]
+    if len(raw_x) == 0 or len(raw_y) == 0:
+        xmin, xmax = 0, 223
+        ymin, ymax = 0, 223
+    else:
+        xmin, xmax = raw_x[0], raw_x[-1]
+        ymin, ymax = raw_y[0], raw_y[-1]
+    return {
+        "xmin": xmin,
+        "ymin": ymin,
+        "xmax": xmax,
+        "ymax": ymax,
+    }

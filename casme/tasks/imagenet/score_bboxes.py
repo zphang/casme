@@ -159,6 +159,30 @@ def score(args, model, data_loader, bboxes):
     return results
 
 
+def compute_agg_loc_scores(gt_boxes, continuous_mask, rectangular_mask, is_correct, include_partial=False):
+    f1s_for_image = []
+    ious_for_image = []
+    for box in gt_boxes:
+        f1_for_box, iou_for_box = get_loc_scores(
+            cor_pos=box,
+            continuous_mask=continuous_mask,
+            rectangular_mask=rectangular_mask,
+        )
+        f1s_for_image.append(f1_for_box)
+        ious_for_image.append(iou_for_box)
+
+    result = {
+        "f1": np.array(f1s_for_image).max(),
+        "le": 1 - np.array(ious_for_image).max(),
+        "om": 1 - (np.array(ious_for_image).max() * is_correct),
+    }
+    if include_partial:
+        result["f1s_for_image"] = f1s_for_image
+        result["ious_for_image"] = ious_for_image
+
+    return result
+
+
 def get_loc_scores(cor_pos, continuous_mask, rectangular_mask):
     xmin, ymin, xmax, ymax = cor_pos["xmin"], cor_pos["ymin"], cor_pos["xmax"], cor_pos["ymax"]
     gt_box_size = (xmax - xmin)*(ymax - ymin)
