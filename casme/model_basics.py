@@ -78,7 +78,7 @@ def icasme_load_model(casm_path):
 
 def get_masks_and_check_predictions(input, target, model, erode_k=0, dilate_k=0):
     with torch.no_grad():
-        input, target = torch.tensor(input), torch.tensor(target)
+        input, target = input.clone(), target.clone()
         mask, output = get_mask(input, model, get_output=True)
 
         rectangular = binarize_mask(mask.clone())

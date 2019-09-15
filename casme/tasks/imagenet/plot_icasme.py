@@ -40,6 +40,7 @@ def main(args):
             transforms.Resize(args.resize),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
+            normalize,
         ])),
         batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
 
@@ -66,20 +67,19 @@ def main(args):
 
             # === normalize first few images
             normalized_input = input_.clone()
-            for k in range(args.columns):
-                normalize(normalized_input[k])
 
             # === get mask and masked images
             binary_mask, soft_mask = get_binarized_mask(normalized_input, model)
             soft_masked_image = normalized_input * soft_mask
             generated, infilled = get_infilled(normalized_input, soft_mask, model["infiller"])
             continuous, rectangular, is_correct = get_masks_and_check_predictions(input_, target, model)
+            masked_in, masked_out = get_masked_images(input_, binary_mask, 0.35)
 
             for j in range(soft_masked_image.size(0)):
-                denormalize(soft_masked_image[j])
-                denormalize(generated[j])
-                denormalize(infilled[j])
-            masked_in, masked_out = get_masked_images(input_, binary_mask, 0.35)
+                soft_masked_image[j] = denormalize(soft_masked_image[j])
+                generated[j] = denormalize(generated[j])
+                infilled[j] = denormalize(infilled[j])
+                masked_out[j] = denormalize(masked_out[j])
             inpainted = inpaint(binary_mask, masked_out)
 
             # === setup plot
@@ -95,14 +95,14 @@ def main(args):
 
             # === plot
             for col in range(args.columns):
-                axes[0, col].imshow(permute_image(input_[col]))
-                axes[1, col].imshow(permute_image(masked_in[col]))
+                axes[0, col].imshow(permute_image(denormalize(input_[col])))
+                axes[1, col].imshow(permute_image(denormalize(masked_in[col])))
                 axes[2, col].imshow(permute_image(masked_out[col]))
                 axes[3, col].imshow(permute_image(inpainted[col]))
                 axes[4, col].imshow(permute_image(soft_masked_image[col]))
                 axes[5, col].imshow(permute_image(generated[col]))
                 axes[6, col].imshow(permute_image(infilled[col]))
-                axes[7, col].imshow(permute_image(input_[col]))
+                axes[7, col].imshow(permute_image(denormalize(input_[col])))
 
                 gt_boxes = bboxes[os.path.basename(paths[col]).split('.')[0]]
                 for ax_i in range(7):
