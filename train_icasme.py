@@ -1,4 +1,3 @@
-import argparse
 import time
 
 import torch.nn as nn
