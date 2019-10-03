@@ -10,8 +10,80 @@ from casme import core, archs, criterion
 from casme.train_utils import single_adjust_learning_rate, save_checkpoint, set_args
 from casme.tasks.imagenet.utils import get_data_loaders
 
+import zconf
 
-def main(args):
+
+@zconf.run_config
+class RunConfiguration(zconf.RunConfig):
+
+    # Experiment Setup
+    train_json = zconf.attr(help='train_json path')
+    val_json = zconf.attr(help='train_json path')
+    casms_path = zconf.attr(default='', help='path to models that generate masks')
+    log_path = zconf.attr(default='', help='directory for logs')
+    name = zconf.attr(default='random',
+                      help='name used to build a path where the models and log are saved (default: random)')
+    print_freq = zconf.attr(default=100, type=int,
+                            help='print frequency (default: 100)')
+    workers = zconf.attr(default=4, type=int,
+                         help='number of data loading workers (default: 4)')
+
+    epochs = zconf.attr(default=60, type=int,
+                        help='number of total epochs to run')
+    batch_size = zconf.attr(default=128, type=int,
+                            help='mini-batch size (default: 128)')
+    perc_of_training = zconf.attr(default=0.2, type=float,
+                                  help='percent of training set seen in each epoch')
+    lr = zconf.attr(default=0.001, type=float,
+                    help='initial learning rate for classifier')
+    lr_casme = zconf.attr(default=0.001, type=float,
+                          help='initial learning rate for casme')
+    lr_infiller = zconf.attr(default=0.001, type=float,
+                             help='initial learning rate for infiller')
+    lrde = zconf.attr(default=20, type=int,
+                      help='how often is the learning rate decayed')
+    momentum = zconf.attr(default=0.9, type=float,
+                          help='momentum for classifier')
+    weight_decay = zconf.attr(default=1e-4, type=float,
+                              help='weight decay for both classifier and casme (default: 1e-4)')
+
+    upsample = zconf.attr(default='nearest',
+                          help='mode for final upsample layer in the decoder (default: nearest)')
+    fixed_classifier = zconf.attr(action='store_true',
+                                  help='train classifier')
+    prob_historic = zconf.attr(default=0.5, type=float,
+                               help='probability for evaluating historic model')
+    save_freq = zconf.attr(default=1000, type=int,
+                           help='frequency of model saving to history (in batches)')
+    f_size = zconf.attr(default=30, type=int,
+                        help='size of F set - maximal number of previous classifier iterations stored')
+    lambda_r = zconf.attr(default=10, type=float,
+                          help='regularization weight controlling mask size')
+    adversarial = zconf.attr(action='store_true',
+                             help='adversarial training uses classification loss instead of entropy')
+    masker_criterion = zconf.attr(default="crossentropy", type=str,
+                                  help='crossentropy|kldivergence')
+    masker_criterion_config = zconf.attr(default="", type=str,
+                                         help='etc')
+    reproduce = zconf.attr(default='',
+                           help='reproducing paper results (F|L|FL|L100|L1000)')
+
+    add_prob_layers = zconf.attr(action='store_true')
+    prob_sample_low = zconf.attr(default=0.25, type=float)
+    prob_sample_high = zconf.attr(default=0.75, type=float)
+    prob_loss_func = zconf.attr(default="l1")
+
+    casme_load_path = zconf.attr(default=None, type=str)
+    infiller_model = zconf.attr(default="cnn", type=str)
+    shuffle_infiller_masks = zconf.attr(action="store_true")
+
+    def process(self):
+        randomhash = ''.join(str(time.time()).split('.'))
+        self.name += randomhash
+        set_args(self)
+
+
+def main(args: RunConfiguration):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # create models and optimizers
@@ -144,78 +216,7 @@ def main(args):
                     tr_s['tv'] + ' ' + val_s['tv'] + '\n')
 
 
-def get_args(*raw_args):
-    parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-    parser.add_argument('data',
-                        help='path to dataset')
-    parser.add_argument('--casms-path', default='',
-                        help='path to models that generate masks')
-    parser.add_argument('--log-path', default='',
-                        help='directory for logs')
-    randomhash = ''.join(str(time.time()).split('.'))
-    parser.add_argument('-n', '--name', default=randomhash + 'random',
-                        help='name used to build a path where the models and log are saved (default: random)')
-    parser.add_argument('--print-freq', default=100, type=int,
-                        help='print frequency (default: 100)')
-    parser.add_argument('--workers', default=4, type=int,
-                        help='number of data loading workers (default: 4)')
-
-    parser.add_argument('--epochs', default=60, type=int,
-                        help='number of total epochs to run')
-    parser.add_argument('--batch-size', default=128, type=int,
-                        help='mini-batch size (default: 128)')
-    parser.add_argument('--perc-of-training', default=0.2, type=float,
-                        help='percent of training set seen in each epoch')
-    parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
-                        help='initial learning rate for classifier')
-    parser.add_argument('--lr-casme', '--learning-rate-casme', default=0.001, type=float,
-                        help='initial learning rate for casme')
-    parser.add_argument('--lr-infiller', '--learning-rate-infiller', default=0.001, type=float,
-                        help='initial learning rate for infiller')
-    parser.add_argument('--lrde', default=20, type=int,
-                        help='how often is the learning rate decayed')
-    parser.add_argument('--momentum', default=0.9, type=float,
-                        help='momentum for classifier')
-    parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
-                        help='weight decay for both classifier and casme (default: 1e-4)')
-
-    parser.add_argument('--upsample', default='nearest',
-                        help='mode for final upsample layer in the decoder (default: nearest)')
-    parser.add_argument('--fixed-classifier', action='store_true',
-                        help='train classifier')
-    parser.add_argument('--prob-historic', default=0.5, type=float,
-                        help='probability for evaluating historic model')
-    parser.add_argument('--save-freq', default=1000, type=int,
-                        help='frequency of model saving to history (in batches)')
-    parser.add_argument('--f-size', default=30, type=int,
-                        help='size of F set - maximal number of previous classifier iterations stored')
-    parser.add_argument('--lambda-r', default=10, type=float,
-                        help='regularization weight controlling mask size')
-    parser.add_argument('--adversarial', action='store_true',
-                        help='adversarial training uses classification loss instead of entropy')
-    parser.add_argument('--masker-criterion', default="crossentropy", type=str,
-                        help='crossentropy|kldivergence')
-    parser.add_argument('--masker-criterion-config', default="", type=str,
-                        help='etc')
-
-    parser.add_argument('--reproduce', default='',
-                        help='reproducing paper results (F|L|FL|L100|L1000)')
-
-    parser.add_argument('--add-prob-layers', action='store_true')
-    parser.add_argument('--prob-sample-low', default=0.25, type=float)
-    parser.add_argument('--prob-sample-high', default=0.75, type=float)
-    parser.add_argument('--prob-loss-func', default="l1")
-    parser.add_argument('--casme-load-path', default=None, type=str)
-    parser.add_argument('--infiller-model', default="cnn", type=str)
-    parser.add_argument('--shuffle-infiller-masks', action="store_true")
-
-    args = parser.parse_args(*raw_args)
-    if not args.log_path:
-        args.log_path = args.casms_path
-    set_args(args)
-
-    return args
-
-
 if __name__ == '__main__':
-    main(get_args())
+    args_ = RunConfiguration.run_cli_json_prepend()
+    args_.process()
+    main(args=args_)
