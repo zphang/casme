@@ -1,16 +1,14 @@
 import argparse
-import os
 import time
 
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 
 from casme import core, archs, criterion
 from casme.train_utils import single_adjust_learning_rate, save_checkpoint, set_args
+from casme.tasks.imagenet.utils import get_data_loaders
 
 
 def main(args):
@@ -47,35 +45,11 @@ def main(args):
 
     cudnn.benchmark = True
 
-    # data loading code
-    print("=> setting up data loaders...")
-    traindir = os.path.join(args.data, 'train')
-    valdir = os.path.join(args.data, 'val')
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-
-    train_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(
-            traindir,
-            transforms.Compose([
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize,
-            ])),
-        batch_size=args.batch_size, shuffle=True, num_workers=args.workers,
-        pin_memory=False, sampler=None,
-    )
-
-    val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=args.batch_size, shuffle=False, num_workers=args.workers,
-        pin_memory=False,
+    train_loader, val_loader = get_data_loaders(
+        train_json=args.train_json,
+        val_json=args.val_json,
+        batch_size=args.batch_size,
+        workers=args.workers,
     )
 
     if args.masker_criterion == "crossentropy":
@@ -239,7 +213,6 @@ def get_args(*raw_args):
     if not args.log_path:
         args.log_path = args.casms_path
     set_args(args)
-
 
     return args
 
