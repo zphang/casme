@@ -7,16 +7,31 @@ import torch.nn.functional as F
 from .ext.pytorch_inpainting_with_partial_conv import gram_matrix, total_variation_loss
 
 
-def default_apply_mask_func(x, mask):
-    return x * (1 - mask)
+class MaskFunc:
 
+    MASK_IN = "MASK_IN"
+    MASK_OUT = "MASK_OUT"
+    MODES = [MASK_IN, MASK_OUT]
 
-def apply_inverted_mask_func(x, mask):
-    return x * mask
+    def __init__(self, mask_mode):
+        assert mask_mode in self.MODES
+        self.mask_mode = mask_mode
 
+    def apply_mask(self, x, mask):
+        if self.mask_mode == self.MASK_IN:
+            return self.mask_in(x, mask)
+        elif self.mask_mode == self.MASK_OUT:
+            return self.mask_out(x, mask)
+        else:
+            raise KeyError(self.mask_mode)
 
-def invert_mask_func(mask):
-    return 1 - mask
+    @staticmethod
+    def mask_out(x, mask):
+        return x * (1 - mask)
+
+    @staticmethod
+    def mask_in(x, mask):
+        return x * mask
 
 
 def apply_uniform_random_value_mask_func(x, mask):
@@ -44,8 +59,8 @@ class InfillerCriterion(nn.Module):
         # x here is ground-truth
 
         # assuming 1 means background
-        hole = self.l1(default_apply_mask_func(x, mask), default_apply_mask_func(generated_image, mask))
-        valid = self.l1(apply_inverted_mask_func(x, mask), apply_inverted_mask_func(generated_image, mask))
+        hole = self.l1(MaskFunc.mask_out(x, mask), MaskFunc.mask_out(generated_image, mask))
+        valid = self.l1(MaskFunc.mask_in(x, mask), MaskFunc.mask_in(generated_image, mask))
 
         # layers = feature of gt image
 
@@ -59,7 +74,7 @@ class InfillerCriterion(nn.Module):
 
         # TODO: Is this loss wrong? if it only backprops to generated bits... ... Try implementing my own.
         # TODO: try using total_variation_loss on dilated boundary region only... but still, incorrect boundary
-        tv = total_variation_loss(apply_inverted_mask_func(infilled_image, dilated_boundaries))
+        tv = total_variation_loss(MaskFunc.mask_in(infilled_image, dilated_boundaries))
         regularization = 0
         loss = (
             6 * hole
@@ -83,13 +98,15 @@ class InfillerCriterion(nn.Module):
 
 
 class MaskerCriterion(nn.Module):
-    def __init__(self, lambda_r, add_prob_layers, prob_loss_func, adversarial, device,
-                 y_hat_log_softmax=False):
+    def __init__(self, lambda_r, add_prob_layers, prob_loss_func,
+                 objective_direction, objective_type,
+                 device, y_hat_log_softmax=False):
         super().__init__()
         self.lambda_r = lambda_r
         self.add_prob_layers = add_prob_layers
         self.prob_loss_func = prob_loss_func
-        self.adversarial = adversarial
+        self.objective_direction = objective_direction
+        self.objective_type = objective_type
         self.device = device
         self.y_hat_log_softmax = y_hat_log_softmax
 
@@ -102,18 +119,6 @@ class MaskerCriterion(nn.Module):
         mistaken_on_masked = y.ne(max_indexes_on_masked_x)
         nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
 
-        """
-        import os
-        if os.environ["AVGMODE"] == "fpool":
-            mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
-        elif os.environ["AVGMODE"] == "meandim":
-            mask_mean = mask.mean(dim=3).mean(dim=2)
-        elif os.environ["AVGMODE"] == "meandimsqueeze":
-            mask_mean = mask.mean(dim=3).mean(dim=2).squeeze()
-        else:
-            raise Exception()
-        """
-        #mask_mean = mask.mean(dim=3).mean(dim=2).squeeze()
         mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
         if self.add_prob_layers:
             # adjust to minimize deviation from p
@@ -127,43 +132,14 @@ class MaskerCriterion(nn.Module):
 
         # apply regularization loss only on non-trivially confused images
         regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
-        """
-            nontrivially_confused = 
-                    1 if relevant, else 0
-            nontrivially_confused - mask_mean = 
-                    if relevant: 1-mask_mean (small if large mask)
-                    else: something less than 0
-            F.relu(...) = 
-                    if relevant: 1-mask_mean (small if large mask)
-            - (...) = 
-                    if relevant: mask_mean (+const)
-        """
 
-        # main loss for casme
-        if self.adversarial:
-            if reduce:
-                loss = -classifier_loss_from_masked_x
-            else:
-                # This is a hack.
-                if self.y_hat_log_softmax:
-                    classifier_criterion = F.nll_loss
-                else:
-                    classifier_criterion = F.cross_entropy
-                loss = -classifier_criterion(y_hat_from_masked_x, y, reduction='none')
-        else:
-            if self.y_hat_log_softmax:
-                log_prob = y_hat_from_masked_x
-            else:
-                log_prob = F.log_softmax(y_hat_from_masked_x, dim=-1)
-            prob = log_prob.exp()
-            negative_entropy = (log_prob * prob).sum(1)
-            # apply main loss only when original images are correctly classified
-            negative_entropy_correct = negative_entropy * correct_on_clean.float()
-            loss = negative_entropy_correct
-
-        if reduce:
-            loss = loss.mean()
-
+        loss, loss_metadata = self.compute_only_loss(
+            y_hat_from_masked_x=y_hat_from_masked_x,
+            y=y,
+            classifier_loss_from_masked_x=classifier_loss_from_masked_x,
+            correct_on_clean=correct_on_clean,
+            reduce=reduce,
+        )
         masker_loss = loss + regularization
         if reduce:
             regularization = regularization.mean()
@@ -182,9 +158,54 @@ class MaskerCriterion(nn.Module):
                 "loss": loss,
                 "regularization": regularization,
             }
-        if not self.adversarial:
-            metadata["negative_entropy"] = negative_entropy
+        if self.objective_type == "entropy":
+            metadata["negative_entropy"] = loss_metadata["negative_entropy"]
         return masker_loss, metadata
+
+    def compute_only_loss(self, y_hat_from_masked_x, y, classifier_loss_from_masked_x,
+                          correct_on_clean, reduce):
+
+        loss_metadata = {}
+        # main loss for casme
+        if self.objective_type == "classification":
+            if reduce:
+                objective = classifier_loss_from_masked_x
+            else:
+                # This is a hack.
+                if self.y_hat_log_softmax:
+                    classifier_criterion = F.nll_loss
+                else:
+                    classifier_criterion = F.cross_entropy
+                objective = classifier_criterion(y_hat_from_masked_x, y, reduction='none')
+        elif self.objective_type == "entropy":
+            if self.y_hat_log_softmax:
+                log_prob = y_hat_from_masked_x
+            else:
+                log_prob = F.log_softmax(y_hat_from_masked_x, dim=-1)
+            prob = log_prob.exp()
+            entropy = -(log_prob * prob).sum(1)
+            # apply main loss only when original images are correctly classified
+            entropy_correct = entropy * correct_on_clean.float()
+            objective = entropy_correct
+            loss_metadata["negative_entropy"] = -entropy
+        else:
+            raise KeyError(self.objective_type)
+
+        if reduce:
+            objective = objective.mean()
+
+        loss = self.determine_loss_direction(objective)
+        return loss, loss_metadata
+
+    def determine_loss_direction(self, loss):
+        if self.objective_direction == "maximize":
+            # maximize objective = minimize negative loss
+            return -loss
+        elif self.objective_direction == "minimize":
+            # minimize objective = minimize loss
+            return loss
+        else:
+            raise KeyError(self.loss_type)
 
 
 class MaskerPriorCriterion(nn.Module):
@@ -444,3 +465,17 @@ class DiscriminatorCriterion(nn.Module):
         }
         discriminator_loss = (real_loss + fake_loss) / 2
         return generator_loss, discriminator_loss, metadata
+
+
+def determine_mask_func(objective_direction, objective_type):
+    if objective_type == "classification" and objective_direction == "maximize":
+        mask_func = MaskFunc(mask_mode=MaskFunc.MASK_IN)
+    elif objective_type == "classification" and objective_direction == "minimize":
+        mask_func = MaskFunc(mask_mode=MaskFunc.MASK_OUT)
+    elif objective_type == "entropy" and objective_direction == "maximize":
+        mask_func = MaskFunc(mask_mode=MaskFunc.MASK_OUT)
+    elif objective_type == "entropy" and objective_direction == "minimize":
+        mask_func = MaskFunc(mask_mode=MaskFunc.MASK_IN)
+    else:
+        raise KeyError((objective_type, objective_direction))
+    return mask_func

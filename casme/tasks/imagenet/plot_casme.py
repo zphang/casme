@@ -10,7 +10,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from casme.model_basics import casme_load_model
-from casme.utils import get_binarized_mask, get_masked_images, inpaint, permute_image
+from casme.casme_utils import get_binarized_mask, get_masked_images, inpaint, permute_image
 
 
 matplotlib.use('Agg')

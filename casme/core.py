@@ -6,16 +6,18 @@ import torch
 
 from . import log_container
 from . import criterion
-from .utils import per_image_normalization
+from .casme_utils import per_image_normalization
 from .train_utils import accuracy
 
 
 class PrintLogger:
-    def log(self, string_to_log="", log_log=True, print_log=True, no_enter=False):
+    @classmethod
+    def log(cls, string_to_log="", log_log=True, print_log=True, no_enter=False):
         sep = "" if no_enter else "\n"
         print(string_to_log, sep=sep)
 
-    def flush(self):
+    @classmethod
+    def flush(cls):
         sys.stdout.flush()
 
     def close(self):
@@ -40,11 +42,11 @@ class CASMERunner(BaseRunner):
                  classifier_criterion, masker_criterion,
                  fixed_classifier, perc_of_training, prob_historic, save_freq, zoo_size,
                  image_normalization_mode,
+                 mask_func,
                  add_prob_layers, prob_sample_low, prob_sample_high,
                  print_freq,
                  device,
                  logger=None,
-                 apply_mask_func=criterion.default_apply_mask_func,
                  ):
         self.classifier = classifier
         self.classifier_for_mask = None
@@ -67,7 +69,7 @@ class CASMERunner(BaseRunner):
         self.print_freq = print_freq
         self.device = device
         self.logger = logger if logger is not None else PrintLogger()
-        self.apply_mask_func = apply_mask_func
+        self.mask_func = mask_func
 
         self.classifier_zoo = {}
 
@@ -162,7 +164,7 @@ class CASMERunner(BaseRunner):
         with torch.set_grad_enabled(is_train):
             # compute mask and masked input
             mask = self.masker(layers, use_p=use_p)
-            masked_x = self.apply_mask_func(x=x, mask=mask)
+            masked_x = self.mask_func.apply_mask(x=x, mask=mask)
 
             # update statistics
             log_containers.statistics.update(mask)
@@ -234,11 +236,11 @@ class InfillerCASMERunner(BaseRunner):
                  train_infiller, shuffle_infiller_masks,
                  fixed_classifier, perc_of_training, prob_historic, save_freq, zoo_size,
                  image_normalization_mode,
+                 mask_func,
                  add_prob_layers, prob_sample_low, prob_sample_high,
                  print_freq,
                  device,
                  logger=None,
-                 apply_mask_func=criterion.default_apply_mask_func,
                  ):
         self.classifier = classifier
         self.classifier_for_mask = None
@@ -266,7 +268,7 @@ class InfillerCASMERunner(BaseRunner):
         self.print_freq = print_freq
         self.device = device
         self.logger = logger if logger is not None else PrintLogger()
-        self.apply_mask_func = apply_mask_func
+        self.mask_func = mask_func
 
         self.classifier_zoo = {}
 
@@ -362,7 +364,7 @@ class InfillerCASMERunner(BaseRunner):
         with torch.set_grad_enabled(is_train):
             # compute mask and masked input
             mask = self.masker(layers, use_p=use_p)
-            masked_x = self.apply_mask_func(x=x, mask=mask)
+            masked_x = self.mask_func(x=x, mask=mask)
 
             # Compute infill (generate using detached mask, infill using real mask)
             with torch.set_grad_enabled(self.train_infiller and not self.shuffle_infiller_masks):
@@ -413,7 +415,7 @@ class InfillerCASMERunner(BaseRunner):
             with torch.set_grad_enabled(self.train_infiller):
                 if self.shuffle_infiller_masks:
                     shuf_mask = torch.flip(mask.detach(), dims=[0])
-                    shuf_masked_x = self.apply_mask_func(x=x, mask=shuf_mask)
+                    shuf_masked_x = self.mask_func(x=x, mask=shuf_mask)
                     generated = self.infiller(shuf_masked_x.detach(), shuf_mask.detach())
                     infilled = criterion.default_infill_func(shuf_masked_x, shuf_mask, generated)
                 infiller_loss = self.infiller_criterion(infilled, x)

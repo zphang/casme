@@ -13,7 +13,7 @@ import torchvision.models as models
 from casme.model_basics import load_model
 from casme.stats import AverageMeter
 from casme.train_utils import accuracy
-from casme.utils import get_binarized_mask, get_masked_images, inpaint
+from casme.casme_utils import get_binarized_mask, get_masked_images, inpaint
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',

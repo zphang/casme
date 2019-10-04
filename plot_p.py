@@ -12,7 +12,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from casme.model_basics import load_model, device
-from casme.utils import get_binarized_mask, get_masked_images, inpaint, permute_image
+from casme.casme_utils import get_binarized_mask, get_masked_images, inpaint, permute_image
 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')

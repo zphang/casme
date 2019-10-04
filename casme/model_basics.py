@@ -5,7 +5,7 @@ from scipy.ndimage.morphology import binary_dilation, binary_erosion
 import torch
 
 from casme import archs
-from casme.criterion import default_apply_mask_func, default_infill_func
+from casme.criterion import MaskFunc, default_infill_func
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -114,7 +114,7 @@ def get_mask(input, model, use_p=None, get_output=False):
 
 def get_infilled(x, mask, infiller):
     with torch.no_grad():
-        masked_x = default_apply_mask_func(x=x, mask=mask)
+        masked_x = MaskFunc.mask_out(x=x, mask=mask)
         generated = infiller(masked_x.detach(), mask.detach())
         infilled = default_infill_func(masked_x, mask, generated)
     return generated, infilled

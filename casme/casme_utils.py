@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 
 import torch
-import torch.nn as nn
 import torchvision.transforms as transforms
 
 from casme.model_basics import binarize_mask, get_mask

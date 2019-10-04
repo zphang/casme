@@ -31,17 +31,16 @@ def single_adjust_learning_rate(optimizer, epoch, lr, lrde):
 
 
 def save_checkpoint(state, args):
-    filename = (args.casms_path + '_epoch_{:03d}'.format(state["epoch"]) + '.chk')
+    filename = os.path.join(args.casms_path, 'epoch_{:03d}.chk'.format(state["epoch"]))
     torch.save(state, filename)
 
 
 def set_args(args):
 
+    os.makedirs(args.output_path, exist_ok=True)
+    args.casms_path = os.path.join(args.output_path, args.name)
     os.makedirs(args.casms_path, exist_ok=True)
-    os.makedirs(args.log_path, exist_ok=True)
-
-    args.casms_path = os.path.join(args.casms_path, args.name)
-    args.log_path = os.path.join(args.log_path, args.name + '.log')
+    args.log_path = os.path.join(args.casms_path, 'log.log')
 
     if args.reproduce != '':
         set_reproduction(args)
@@ -103,3 +102,4 @@ def set_reproduction(args):
             args.lambda_r = 17
         else:
             args.lambda_r = 10
+    raise Exception("For Reference Only")

@@ -18,8 +18,7 @@ class RunConfiguration(zconf.RunConfig):
     # Experiment Setup
     train_json = zconf.attr(help='train_json path')
     val_json = zconf.attr(help='train_json path')
-    casms_path = zconf.attr(default='', help='path to models that generate masks')
-    log_path = zconf.attr(default='', help='directory for logs')
+    output_path = zconf.attr(help='output_path')
     name = zconf.attr(default='random',
                       help='name used to build a path where the models and log are saved (default: random)')
     print_freq = zconf.attr(default=100, type=int,
@@ -163,6 +162,7 @@ def main(args: RunConfiguration):
         save_freq=args.save_freq,
         zoo_size=args.f_size,
         image_normalization_mode=None,
+        mask_func=criterion.MaskFunc(mask_mode=criterion.MaskFunc.MASK_OUT),
         add_prob_layers=args.add_prob_layers,
         prob_sample_low=args.prob_sample_low,
         prob_sample_high=args.prob_sample_high,

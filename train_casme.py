@@ -6,7 +6,7 @@ import torch.optim
 import torch.utils.data
 
 from casme import core, archs, criterion
-from casme.train_utils import adjust_learning_rate, save_checkpoint, set_args
+from casme.train_utils import single_adjust_learning_rate, save_checkpoint, set_args
 from casme.tasks.imagenet.utils import get_data_loaders
 
 import zconf
@@ -18,8 +18,7 @@ class RunConfiguration(zconf.RunConfig):
     # Experiment Setup
     train_json = zconf.attr(help='train_json path')
     val_json = zconf.attr(help='train_json path')
-    casms_path = zconf.attr(default='', help='path to models that generate masks')
-    log_path = zconf.attr(default='', help='directory for logs')
+    output_path = zconf.attr(help='output_path')
     name = zconf.attr(default='random',
                       help='name used to build a path where the models and log are saved (default: random)')
     print_freq = zconf.attr(default=100, type=int,
@@ -46,6 +45,8 @@ class RunConfiguration(zconf.RunConfig):
 
     upsample = zconf.attr(default='nearest',
                           help='mode for final upsample layer in the decoder (default: nearest)')
+    objective_direction = zconf.attr(default="maximize", help="maximize|minimize")
+    objective_type = zconf.attr(default="entropy", help="entropy|classification")
     fixed_classifier = zconf.attr(action='store_true',
                                   help='train classifier')
     prob_historic = zconf.attr(default=0.5, type=float,
@@ -56,8 +57,6 @@ class RunConfiguration(zconf.RunConfig):
                         help='size of F set - maximal number of previous classifier iterations stored')
     lambda_r = zconf.attr(default=10, type=float,
                           help='regularization weight controlling mask size')
-    adversarial = zconf.attr(action='store_true',
-                             help='adversarial training uses classification loss instead of entropy')
     masker_criterion = zconf.attr(default="crossentropy", type=str,
                                   help='crossentropy|kldivergence')
     masker_criterion_config = zconf.attr(default="", type=str,
@@ -69,6 +68,10 @@ class RunConfiguration(zconf.RunConfig):
     prob_sample_low = zconf.attr(default=0.25, type=float)
     prob_sample_high = zconf.attr(default=0.75, type=float)
     prob_loss_func = zconf.attr(default="l1")
+
+    # Placeholders
+    casms_path = zconf.attr(default='')
+    log_path = zconf.attr(default='')
 
     def process(self):
         randomhash = ''.join(str(time.time()).split('.'))
@@ -111,8 +114,9 @@ def main(args):
             lambda_r=args.lambda_r,
             add_prob_layers=args.add_prob_layers,
             prob_loss_func=args.prob_loss_func,
-            adversarial=args.adversarial,
-            device=device
+            objective_direction=args.objective_direction,
+            objective_type=args.objective_type,
+            device=device,
         )
     elif args.masker_criterion == "kldivergence":
         masker_criterion = criterion.MaskerPriorCriterion(
@@ -139,6 +143,10 @@ def main(args):
         save_freq=args.save_freq,
         zoo_size=args.f_size,
         image_normalization_mode=None,
+        mask_func=criterion.determine_mask_func(
+            objective_direction=args.objective_direction,
+            objective_type=args.objective_type,
+        ),
         add_prob_layers=args.add_prob_layers,
         prob_sample_low=args.prob_sample_low,
         prob_sample_high=args.prob_sample_high,
@@ -150,8 +158,14 @@ def main(args):
     for epoch in range(args.epochs):
         epoch_start_time = time.time()
 
-        adjust_learning_rate(classifier_optimizer, masker_optimizer, epoch,
-                             lr=args.lr, lr_casme=args.lr_casme, lrde=args.lrde)
+        single_adjust_learning_rate(
+            optimizer=classifier_optimizer,
+            epoch=epoch, lr=args.lr, lrde=args.lrde,
+        )
+        single_adjust_learning_rate(
+            optimizer=masker_optimizer,
+            epoch=epoch, lr=args.lr_casme, lrde=args.lrde,
+        )
 
         # train for one epoch
         tr_s = casme_runner.train_or_eval(

@@ -14,7 +14,7 @@ from casme.model_basics import (
     icasme_load_model, get_infilled, get_masks_and_check_predictions,
     get_pred_bounding_box,
 )
-from casme.utils import get_binarized_mask, get_masked_images, inpaint, permute_image
+from casme.casme_utils import get_binarized_mask, get_masked_images, inpaint, permute_image
 from casme.tasks.imagenet.score_bboxes import compute_agg_loc_scores
 
 import zconf
