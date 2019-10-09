@@ -100,7 +100,7 @@ class InfillerCriterion(nn.Module):
 class MaskerCriterion(nn.Module):
     def __init__(self, lambda_r, add_prob_layers, prob_loss_func,
                  objective_direction, objective_type,
-                 device, y_hat_log_softmax=False):
+                 device, y_hat_log_softmax=False, lambda_tv=None):
         super().__init__()
         self.lambda_r = lambda_r
         self.add_prob_layers = add_prob_layers
@@ -109,6 +109,7 @@ class MaskerCriterion(nn.Module):
         self.objective_type = objective_type
         self.device = device
         self.y_hat_log_softmax = y_hat_log_softmax
+        self.lambda_tv = lambda_tv
 
     def forward(self,
                 mask, y_hat, y_hat_from_masked_x, y,
@@ -131,7 +132,9 @@ class MaskerCriterion(nn.Module):
                 raise KeyError(self.prob_loss_func)
 
         # apply regularization loss only on non-trivially confused images
-        regularization = -self.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
+        mask_reg = -self.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
+        tv_reg = tv_loss(img=mask, tv_weight=self.lambda_tv)
+        regularization = mask_reg + tv_reg
 
         loss, loss_metadata = self.compute_only_loss(
             y_hat_from_masked_x=y_hat_from_masked_x,
@@ -149,6 +152,8 @@ class MaskerCriterion(nn.Module):
                 "nontrivially_confused": nontrivially_confused.float().mean(),
                 "loss": loss,
                 "regularization": regularization,
+                "mask_reg": mask_reg,
+                "tv_reg": tv_reg,
             }
         else:
             metadata = {
@@ -157,6 +162,8 @@ class MaskerCriterion(nn.Module):
                 "nontrivially_confused": nontrivially_confused.float(),
                 "loss": loss,
                 "regularization": regularization,
+                "mask_reg": mask_reg,
+                "tv_reg": tv_reg,
             }
         if self.objective_type == "entropy":
             metadata["negative_entropy"] = loss_metadata["negative_entropy"]
@@ -479,3 +486,14 @@ def determine_mask_func(objective_direction, objective_type):
     else:
         raise KeyError((objective_type, objective_direction))
     return mask_func
+
+
+def tv_loss(img, tv_weight):
+    if tv_weight is None:
+        return 0.0
+    # https://github.com/chongyangma/cs231n/blob/master/assignments/assignment3/style_transfer_pytorch.py
+    w_variance = torch.sum(torch.pow(img[:, :, :, :-1] - img[:, :, :, 1:], 2))
+    h_variance = torch.sum(torch.pow(img[:, :, :-1, :] - img[:, :, 1:, :], 2))
+    loss = tv_weight * (h_variance + w_variance)
+    return loss
+

@@ -57,6 +57,7 @@ class RunConfiguration(zconf.RunConfig):
                         help='size of F set - maximal number of previous classifier iterations stored')
     lambda_r = zconf.attr(default=10, type=float,
                           help='regularization weight controlling mask size')
+    lambda_tv = zconf.attr(default=None, type=float)
     masker_criterion = zconf.attr(default="crossentropy", type=str,
                                   help='crossentropy|kldivergence')
     masker_criterion_config = zconf.attr(default="", type=str,
@@ -75,7 +76,7 @@ class RunConfiguration(zconf.RunConfig):
 
     def process(self):
         randomhash = ''.join(str(time.time()).split('.'))
-        self.name += randomhash
+        self.name = self.name + "___" + randomhash
         set_args(self)
 
 
@@ -112,6 +113,7 @@ def main(args):
     if args.masker_criterion == "crossentropy":
         masker_criterion = criterion.MaskerCriterion(
             lambda_r=args.lambda_r,
+            lambda_tv=args.lambda_tv,
             add_prob_layers=args.add_prob_layers,
             prob_loss_func=args.prob_loss_func,
             objective_direction=args.objective_direction,
