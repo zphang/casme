@@ -2,42 +2,52 @@ import argparse
 import os
 
 from zphang import utils
-from casme.tasks.imagenet.score_bboxes import main as score_main
+import casme.tasks.imagenet.score_bboxes as score_bboxes
+
+import zconf
 
 
-def main(args):
-    args.data = '/gpfs/data/geraslab/Krzysztof/unpacked_imagenet'
-    args.bboxes_path = '/gpfs/data/geraslab/zphang/working/190624_new_casme/imagenet_annotation.json'
+@zconf.run_config
+class RunConfiguration(zconf.RunConfig):
+    mode = zconf.attr()
+    base_path = zconf.attr()
+    output_path = zconf.attr()
+
+    workers = zconf.attr(default=4, type=int, help='number of data loading workers (default: 4)')
+    batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 256)')
+    print_freq = zconf.attr(default=10, type=int, help='print frequency (default: 10)')
+    break_ratio = zconf.attr(action='store_true', help='break original aspect ratio when resizing')
+    not_normalize = zconf.attr(action='store_true', help='prevents normalization')
+    pot = zconf.attr(default=1, type=float, help='percent of validation set seen')
+
+
+def main(args: RunConfiguration):
     if args.mode not in ("center", "max"):
-        args.casm_path = utils.find_best_model(args.base_path)
+        casm_path = utils.find_best_model(args.base_path)
+    else:
+        casm_path = None
     print("Scoring {}".format(args.casm_path))
+
     if not args.output_path:
-        args.output_path = os.path.join(args.base_path, "score.json")
-    score_main(args)
+        output_path = os.path.join(args.base_path, "score.json")
+    else:
+        output_path = args.output_path
 
-
-def get_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('mode')
-    parser.add_argument('base_path')
-    parser.add_argument('-o', '--output_path', default=None)
-
-    parser.add_argument('--workers', default=4, type=int,
-                        help='number of data loading workers (default: 4)')
-    parser.add_argument('-b', '--batch-size', default=128, type=int,
-                        help='mini-batch size (default: 256)')
-    parser.add_argument('--print-freq', default=10, type=int,
-                        help='print frequency (default: 10)')
-    parser.add_argument('--break-ratio', action='store_true',
-                        help='break original aspect ratio when resizing')
-    parser.add_argument('--not-normalize', action='store_true',
-                        help='prevents normalization')
-
-    parser.add_argument('--pot', default=1, type=float,
-                        help='percent of validation set seen')
-    args = parser.parse_args()
-    return args
+    score_bboxes_args = score_bboxes.RunConfiguration(
+        val_json="/gpfs/data/geraslab/zphang/working/1910/03_salmap_prep/imagenet_paths/train_val.json",
+        mode=args.mode,
+        bboxes_path='/gpfs/data/geraslab/zphang/working/190624_new_casme/imagenet_annotation.json',
+        casm_path=casm_path,
+        output_path=output_path,
+        workers=args.workers,
+        batch_size=args.batch_size,
+        print_freq=args.print_freq,
+        break_ratio=args.break_ratio,
+        not_normalize=args.not_normalize,
+        pot=args.pot,
+    )
+    score_bboxes.main(score_bboxes_args)
 
 
 if __name__ == '__main__':
-    main(get_args())
+    main(args=RunConfiguration.run_cli_json_prepend())

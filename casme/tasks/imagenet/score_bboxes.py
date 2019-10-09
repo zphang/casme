@@ -1,4 +1,3 @@
-import argparse
 import numpy as np
 import os
 import json
@@ -6,32 +5,44 @@ import time
 
 import torch
 import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 
 from casme.stats import AverageMeter, StatisticsContainer
 from casme.model_basics import casme_load_model, icasme_load_model, get_masks_and_check_predictions
+from casme.utils.torch_utils import ImageJsonDataset
+import casme.tasks.imagenet.utils as imagenet_utils
+
+import zconf
 
 
-class ImageFolderWithPaths(datasets.ImageFolder):
-    def __getitem__(self, index):
-        return super(ImageFolderWithPaths, self).__getitem__(index), self.imgs[index][0]
+@zconf.run_config
+class RunConfiguration(zconf.RunConfig):
+    val_json = zconf.attr(help='train_json path')
+    mode = zconf.attr(type="str")
+    bboxes_path = zconf.attr(help='path to bboxes_json')
+    casm_path = zconf.attr(help='model_checkpoint')
+    output_path = zconf.attr(help='output_path')
+
+    workers = zconf.attr(default=4, type=int, help='number of data loading workers (default: 4)')
+    batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 256)')
+    print_freq = zconf.attr(default=10, type=int, help='print frequency (default: 10)')
+    break_ratio = zconf.attr(action='store_true', help='break original aspect ratio when resizing')
+    not_normalize = zconf.attr(action='store_true', help='prevents normalization')
+
+    pot = zconf.attr(default=1, type=float, help='percent of validation set seen')
 
 
-def main(args):
+def main(args: RunConfiguration):
     # data loading code
-    normalize = transforms.Normalize(
-        mean=[0, 0, 0] if args.not_normalize else [0.485, 0.456, 0.406],
-        std=[1, 1, 1] if args.not_normalize else [0.229, 0.224, 0.225],
-    )
-
     data_loader = torch.utils.data.DataLoader(
-        ImageFolderWithPaths(
-            os.path.join(args.data, 'val'), transforms.Compose([
+        ImageJsonDataset(
+            os.path.join(args.val_json, 'val'),
+            transforms.Compose([
                 transforms.Resize([224, 224] if args.break_ratio else 224),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
-                normalize,
+                imagenet_utils.NORMALIZATION,
             ]),
+            return_paths=True,
         ),
         batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=False
     )
@@ -225,39 +236,5 @@ def compute_iou(m, gt_box, gt_box_size):
         return intersection / (m.sum() + gt_box_size - intersection)
 
 
-def get_args():
-    parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-    parser.add_argument('data', metavar='DIR',
-                        help='path to dataset')
-    parser.add_argument('--mode')
-    parser.add_argument('--bboxes_path', help='path to bboxes_json')
-    parser.add_argument('--casm_path', help='model_checkpoint')
-    parser.add_argument('--output_path')
-
-    parser.add_argument('--workers', default=4, type=int,
-                        help='number of data loading workers (default: 4)')
-    parser.add_argument('-b', '--batch_size', default=128, type=int,
-                        help='mini-batch size (default: 256)')
-    parser.add_argument('--print_freq', default=10, type=int,
-                        help='print frequency (default: 10)')
-    parser.add_argument('--break_ratio', action='store_true',
-                        help='break original aspect ratio when resizing')
-    parser.add_argument('--not_normalize', action='store_true',
-                        help='prevents normalization')
-
-    parser.add_argument('--pot', default=1, type=float,
-                        help='percent of validation set seen')
-
-    args = parser.parse_args()
-    return args
-
-
-def get_args_dict(args):
-    return {
-        name: getattr(args, name)
-        for name in sorted(vars(args))
-    }
-
-
 if __name__ == '__main__':
-    main(get_args())
+    main(args=RunConfiguration.run_cli_json_prepend())

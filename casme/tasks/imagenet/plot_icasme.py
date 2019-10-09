@@ -4,7 +4,6 @@ import os
 
 import torch
 import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -16,33 +15,51 @@ from casme.model_basics import (
 )
 from casme.casme_utils import get_binarized_mask, get_masked_images, inpaint, permute_image
 from casme.tasks.imagenet.score_bboxes import compute_agg_loc_scores
+import casme.tasks.imagenet.utils as imagenet_utils
+from casme.utils.torch_utils import ImageJsonDataset
 
 import zconf
 
 
-class ImageFolderWithPaths(datasets.ImageFolder):
-    def __getitem__(self, index):
-        return super(ImageFolderWithPaths, self).__getitem__(index), self.imgs[index][0]
+@zconf.run_config
+class RunConfiguration(zconf.RunConfig):
+    val_json = zconf.attr(help='val_json path')
+    bboxes_path = zconf.attr(help='path to bboxes_json')
+    casm_path = zconf.attr(default='', help='path to model that generate masks')
+
+    workers = zconf.attr(default=4, type=int, metavar='N',
+                         help='number of data loading workers (default: 4)')
+    resize = zconf.attr(default=256, type=int,
+                        help='resize parameter (default: 256)')
+    batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 128)')
+
+    columns = zconf.attr(default=7, type=int, help='number of consecutive images plotted together,'
+                                                   ' one per column (default: 7, recommended 4 to 7)')
+    plots = zconf.attr(default=16, type=int,
+                       help='number of different plots generated (default: 16, -1 to generate all of them)')
+    seed = zconf.attr(default=931001, type=int,
+                      help='random seed that is used to select images')
+    plots_path = zconf.attr(default='', help='directory for plots')
+
+    def _post_init(self):
+        if self.columns > self.batch_size:
+            self.columns = self.batch_size
 
 
 def main(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    mean = np.array([0.485, 0.456, 0.406])
-    std = np.array([0.229, 0.224, 0.225])
-    normalize = transforms.Normalize(mean=mean,
-                                     std=std)
-    denormalize = transforms.Normalize(mean=-mean / std,
-                                       std=1 / std)
-    # data loader without normalization
     data_loader = torch.utils.data.DataLoader(
-        ImageFolderWithPaths(os.path.join(args.data, 'val'), transforms.Compose([
-            transforms.Resize(args.resize),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=False)
+        ImageJsonDataset(
+            args.val_json,
+            transforms.Compose([
+                transforms.Resize(args.resize),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+            ])
+        ),
+        batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=False,
+    )
 
     with open(args.bboxes_path, "r") as f:
         bboxes = json.loads(f.read())
@@ -76,10 +93,10 @@ def main(args):
             masked_in, masked_out = get_masked_images(input_, binary_mask, 0.35)
 
             for j in range(soft_masked_image.size(0)):
-                soft_masked_image[j] = denormalize(soft_masked_image[j])
-                generated[j] = denormalize(generated[j])
-                infilled[j] = denormalize(infilled[j])
-                masked_out[j] = denormalize(masked_out[j])
+                soft_masked_image[j] = imagenet_utils.DENORMALIZATION(soft_masked_image[j])
+                generated[j] = imagenet_utils.DENORMALIZATION(generated[j])
+                infilled[j] = imagenet_utils.DENORMALIZATION(infilled[j])
+                masked_out[j] = imagenet_utils.DENORMALIZATION(masked_out[j])
             inpainted = inpaint(binary_mask, masked_out)
 
             # === setup plot
@@ -95,14 +112,14 @@ def main(args):
 
             # === plot
             for col in range(args.columns):
-                axes[0, col].imshow(permute_image(denormalize(input_[col])))
-                axes[1, col].imshow(permute_image(denormalize(masked_in[col])))
+                axes[0, col].imshow(permute_image(imagenet_utils.DENORMALIZATION(input_[col])))
+                axes[1, col].imshow(permute_image(imagenet_utils.DENORMALIZATION(masked_in[col])))
                 axes[2, col].imshow(permute_image(masked_out[col]))
                 axes[3, col].imshow(permute_image(inpainted[col]))
                 axes[4, col].imshow(permute_image(soft_masked_image[col]))
                 axes[5, col].imshow(permute_image(generated[col]))
                 axes[6, col].imshow(permute_image(infilled[col]))
-                axes[7, col].imshow(permute_image(denormalize(input_[col])))
+                axes[7, col].imshow(permute_image(imagenet_utils.DENORMALIZATION(input_[col])))
 
                 gt_boxes = bboxes[os.path.basename(paths[col]).split('.')[0]]
                 for ax_i in range(7):
@@ -156,31 +173,6 @@ def main(args):
             plt.gcf()
             plt.close()
             print('plotted to {}.'.format(path))
-
-
-@zconf.run_config
-class RunConfiguration(zconf.RunConfig):
-    data = zconf.attr(metavar='DIR', help='path to dataset')
-    bboxes_path = zconf.attr(help='path to bboxes_json')
-    casm_path = zconf.attr(default='', help='path to model that generate masks')
-
-    workers = zconf.attr(default=4, type=int, metavar='N',
-                        help='number of data loading workers (default: 4)')
-    resize = zconf.attr(default=256, type=int,
-                        help='resize parameter (default: 256)')
-    batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 128)')
-
-    columns = zconf.attr(default=7, type=int, help='number of consecutive images plotted together,'
-                                                   ' one per column (default: 7, recommended 4 to 7)')
-    plots = zconf.attr(default=16, type=int,
-                       help='number of different plots generated (default: 16, -1 to generate all of them)')
-    seed = zconf.attr(default=931001, type=int,
-                      help='random seed that is used to select images')
-    plots_path = zconf.attr(default='', help='directory for plots')
-
-    def _post_init(self):
-        if self.columns > self.batch_size:
-            self.columns = self.batch_size
 
 
 if __name__ == '__main__':

@@ -6,7 +6,7 @@ import pyutils.io as io
 
 class ImageJsonDataset(VisionDataset):
     def __init__(self, config_path, transform=None, target_transform=None,
-                 loader=default_loader):
+                 loader=default_loader, return_paths=False):
         config = io.read_json(config_path)
         super().__init__(root=config["root"], transform=transform, target_transform=target_transform)
 
@@ -17,6 +17,7 @@ class ImageJsonDataset(VisionDataset):
         self.class_to_idx = config["class_to_idx"]
         self.samples = config["samples"]
         self.targets = [s[1] for s in self.samples]
+        self.return_paths = return_paths
 
     def __getitem__(self, index):
         """
@@ -32,8 +33,12 @@ class ImageJsonDataset(VisionDataset):
             sample = self.transform(sample)
         if self.target_transform is not None:
             target = self.target_transform(target)
+        output = sample, target
 
-        return sample, target
+        if self.return_paths:
+            return output, path
+        else:
+            return output
 
     def __len__(self):
         return len(self.samples)

@@ -1,11 +1,20 @@
+import numpy as np
+
 import torch
 
 import torchvision.transforms as transforms
 from casme.utils.torch_utils import ImageJsonDataset
 
-
-NORMALIZATION = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
+NORMALIZATION_MEAN = np.array([0.485, 0.456, 0.406])
+NORMALIZATION_STD = np.array([0.229, 0.224, 0.225])
+NORMALIZATION = transforms.Normalize(
+    mean=NORMALIZATION_MEAN,
+    std=NORMALIZATION_STD,
+)
+DENORMALIZATION = transforms.Normalize(
+    mean=-NORMALIZATION_MEAN / NORMALIZATION_STD,
+    std=1 / NORMALIZATION_STD,
+)
 
 
 def get_data_loaders(train_json, val_json, batch_size, workers):

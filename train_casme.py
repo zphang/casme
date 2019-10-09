@@ -17,7 +17,7 @@ class RunConfiguration(zconf.RunConfig):
 
     # Experiment Setup
     train_json = zconf.attr(help='train_json path')
-    val_json = zconf.attr(help='train_json path')
+    val_json = zconf.attr(help='val_json path')
     output_path = zconf.attr(help='output_path')
     name = zconf.attr(default='random',
                       help='name used to build a path where the models and log are saved (default: random)')
