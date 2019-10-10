@@ -39,11 +39,12 @@ class CASMERunner(BaseRunner):
     def __init__(self,
                  classifier, masker,
                  classifier_optimizer, masker_optimizer,
-                 classifier_criterion, masker_criterion,
+                 classifier_criterion, mask_in_criterion, mask_out_criterion,
                  fixed_classifier, perc_of_training, prob_historic, save_freq, zoo_size,
                  image_normalization_mode,
-                 mask_func,
                  add_prob_layers, prob_sample_low, prob_sample_high,
+                 mask_in_weight,
+                 mask_out_weight,
                  print_freq,
                  device,
                  logger=None,
@@ -54,7 +55,8 @@ class CASMERunner(BaseRunner):
         self.classifier_optimizer = classifier_optimizer
         self.masker_optimizer = masker_optimizer
         self.classifier_criterion = classifier_criterion.to(device)
-        self.masker_criterion = masker_criterion.to(device)
+        self.mask_in_criterion = mask_in_criterion
+        self.mask_out_criterion = mask_out_criterion
 
         self.fixed_classifier = fixed_classifier
         self.perc_of_training = perc_of_training
@@ -66,12 +68,17 @@ class CASMERunner(BaseRunner):
         self.add_prob_layers = add_prob_layers
         self.prob_sample_low = prob_sample_low
         self.prob_sample_high = prob_sample_high
+        self.mask_in_weight = mask_in_weight
+        self.mask_out_weight = mask_out_weight
+
         self.print_freq = print_freq
         self.device = device
         self.logger = logger if logger is not None else PrintLogger()
-        self.mask_func = mask_func
 
+        self.do_mask_in = self.mask_in_criterion is not None
+        self.do_mask_out = self.mask_out_criterion is not None
         self.classifier_zoo = {}
+        assert self.do_mask_in or self.do_mask_out
 
     def train_or_eval(self, data_loader, is_train=False, epoch=None):
         log_containers = log_container.LogContainers()
@@ -134,84 +141,83 @@ class CASMERunner(BaseRunner):
             y_hat, layers = self.classifier(x, return_intermediate=True)
             classifier_loss = self.classifier_criterion(y_hat, y)
 
+        """
         # update metrics
         log_containers.losses.update(classifier_loss.item(), x.size(0))
         log_containers.acc.update(accuracy(y_hat.detach(), y, topk=(1,))[0].item(), x.size(0))
+        """
 
         # update classifier - compute gradient and do SGD step for clean image, save classifier
         if is_train and (not self.fixed_classifier):
-            self.classifier_optimizer.zero_grad()
-            classifier_loss.backward()
-            self.classifier_optimizer.step()
-
-            # save classifier (needed only if previous iterations are used i.e. args.hp > 0)
-            if self.prob_historic > 0 \
-                    and ((i % self.save_freq == -1 % self.save_freq) or len(self.classifier_zoo) < 1):
-                self.logger.log('Current iteration is saving, will be used in the future. ', no_enter=True)
-                if len(self.classifier_zoo) < self.zoo_size:
-                    index = len(self.classifier_zoo)
-                else:
-                    index = random.randint(0, len(self.classifier_zoo) - 1)
-                state_dict = self.classifier.state_dict()
-                self.classifier_zoo[index] = {}
-                for p in state_dict:
-                    self.classifier_zoo[index][p] = state_dict[p].cpu()
-                self.logger.log('There are {0} iterations stored.'.format(len(self.classifier_zoo)))
-
-        # detach inner layers to make them be features for decoder
-        layers = [l.detach() for l in layers]
+            self.classifier_optimizer_step(classifier_loss=classifier_loss)
+            self.maybe_save_classifier_to_history(i=i)
 
         with torch.set_grad_enabled(is_train):
             # compute mask and masked input
-            mask = self.masker(layers, use_p=use_p)
-            masked_x = self.mask_func.apply_mask(x=x, mask=mask)
-
-            # update statistics
+            mask = self.masker(
+                layers=self.detach_layers(layers),
+                use_p=use_p,
+            )
+            classifier_for_mask, update_classifier = self.choose_masked_classifier(is_train)
+            """
             log_containers.statistics.update(mask)
-
-            # randomly select classifier to be evaluated on masked image and compute output
-            if (not is_train) or self.fixed_classifier or (random.random() > self.prob_historic):
-                y_hat_from_masked_x = self.classifier(masked_x)
-                update_classifier = not self.fixed_classifier
+            """
+            if self.do_mask_in:
+                masked_in_x = criterion.MaskFunc.mask_in(x=x, mask=mask)
+                y_hat_from_masked_in_x = self.classifier(masked_in_x)
+                classifier_loss_from_masked_in_x = self.classifier_criterion(y_hat_from_masked_in_x, y)
+                mask_in_loss, mask_in_loss_metadata = self.mask_in_criterion(
+                    mask=mask, y_hat=y_hat, y_hat_from_masked_x=y_hat_from_masked_in_x, y=y,
+                    classifier_loss_from_masked_x=classifier_loss_from_masked_in_x, use_p=use_p,
+                )
             else:
-                if self.classifier_for_mask is None:
-                    self.classifier_for_mask = copy.deepcopy(self.classifier)
-                index = random.randint(0, len(self.classifier_zoo) - 1)
-                self.classifier_for_mask.load_state_dict(self.classifier_zoo[index])
-                self.classifier_for_mask.eval()
-                y_hat_from_masked_x = self.classifier_for_mask(masked_x)
-                update_classifier = False
+                classifier_loss_from_masked_in_x = mask_in_loss = 0
+                mask_in_loss_metadata = None
 
-            classifier_loss_from_masked_x = self.classifier_criterion(y_hat_from_masked_x, y)
+            if self.do_mask_out:
+                masked_out_x = criterion.MaskFunc.mask_out(x=x, mask=mask)
+                y_hat_from_masked_out_x = self.classifier(masked_out_x)
+                classifier_loss_from_masked_out_x = self.classifier_criterion(y_hat_from_masked_out_x, y)
+                mask_out_loss, mask_out_loss_metadata = self.mask_out_criterion(
+                    mask=mask, y_hat=y_hat, y_hat_from_masked_x=y_hat_from_masked_out_x, y=y,
+                    classifier_loss_from_masked_x=classifier_loss_from_masked_out_x, use_p=use_p,
+                )
+            else:
+                classifier_loss_from_masked_out_x = mask_out_loss = 0
+                mask_out_loss_metadata = None
 
+            classifier_loss_from_masked_x = (
+                self.mask_in_weight * classifier_loss_from_masked_in_x
+                + self.mask_out_weight * classifier_loss_from_masked_out_x
+            )
+            masker_total_loss = (
+                self.mask_in_weight * mask_in_loss
+                + self.mask_out_weight * mask_out_loss
+            )
+
+            """
             # update metrics
             log_containers.losses_m.update(classifier_loss_from_masked_x.item(), x.size(0))
             log_containers.acc_m.update(accuracy(
                 y_hat_from_masked_x.detach(), y, topk=(1,))[0].item(), x.size(0))
+            """
 
         if is_train:
             # update classifier - compute gradient, do SGD step for masked image
             if update_classifier:
-                self.classifier_optimizer.zero_grad()
-                classifier_loss_from_masked_x.backward(retain_graph=True)
-                self.classifier_optimizer.step()
-
-            masker_total_loss, masker_loss_metadata = self.masker_criterion(
-                mask=mask, y_hat=y_hat, y_hat_from_masked_x=y_hat_from_masked_x, y=y,
-                classifier_loss_from_masked_x=classifier_loss_from_masked_x, use_p=use_p,
-            )
+                self.classifier_from_masked_optimizer_step(classifier_loss_from_masked_x)
 
             # update casme - compute gradient, do SGD step
-            self.masker_optimizer.zero_grad()
-            masker_total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.masker.parameters(), 10)
-            self.masker_optimizer.step()
+            self.masker_optimizer_step(masker_total_loss)
+
+            """
             log_containers.masker_total_loss.update(masker_total_loss.item(), x.size(0))
             log_containers.masker_loss.update(masker_loss_metadata["loss"].item(), x.size(0))
             log_containers.masker_reg.update(masker_loss_metadata["regularization"].item(), x.size(0))
             log_containers.correct_on_clean.update(masker_loss_metadata["correct_on_clean"].item(), x.size(0))
             log_containers.mistaken_on_masked.update(masker_loss_metadata["mistaken_on_masked"].item(), x.size(0))
             log_containers.nontrivially_confused.update(masker_loss_metadata["nontrivially_confused"].item(), x.size(0))
+            """
 
         # measure elapsed time
         log_containers.batch_time.update()
@@ -226,6 +232,58 @@ class CASMERunner(BaseRunner):
         else:
             self.masker.eval()
             self.classifier.eval()
+
+    def maybe_save_classifier_to_history(self, i):
+        # save classifier (needed only if previous iterations are used i.e. args.hp > 0)
+        if self.prob_historic > 0 \
+                and ((i % self.save_freq == -1 % self.save_freq) or len(self.classifier_zoo) < 1):
+            self.logger.log('Current iteration is saving, will be used in the future. ', no_enter=True)
+            if len(self.classifier_zoo) < self.zoo_size:
+                index = len(self.classifier_zoo)
+            else:
+                index = random.randint(0, len(self.classifier_zoo) - 1)
+            state_dict = self.classifier.state_dict()
+            self.classifier_zoo[index] = {}
+            for p in state_dict:
+                self.classifier_zoo[index][p] = state_dict[p].cpu()
+            self.logger.log('There are {0} iterations stored.'.format(len(self.classifier_zoo)))
+
+    def setup_classifier_for_mask(self):
+        if self.classifier_for_mask is None:
+            self.classifier_for_mask = copy.deepcopy(self.classifier)
+        index = random.randint(0, len(self.classifier_zoo) - 1)
+        self.classifier_for_mask.load_state_dict(self.classifier_zoo[index])
+        self.classifier_for_mask.eval()
+
+    def classifier_optimizer_step(self, classifier_loss):
+        self.classifier_optimizer.zero_grad()
+        classifier_loss.backward()
+        self.classifier_optimizer.step()
+
+    def classifier_from_masked_optimizer_step(self, classifier_loss_from_masked_x):
+        self.classifier_optimizer.zero_grad()
+        classifier_loss_from_masked_x.backward(retain_graph=True)
+        self.classifier_optimizer.step()
+
+    def masker_optimizer_step(self, masker_total_loss):
+        self.masker_optimizer.zero_grad()
+        masker_total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.masker.parameters(), 10)
+        self.masker_optimizer.step()
+
+    def choose_masked_classifier(self, is_train):
+        if (not is_train) or self.fixed_classifier or (random.random() > self.prob_historic):
+            classifier_for_mask = self.classifier
+            update_classifier = not self.fixed_classifier
+        else:
+            self.setup_classifier_for_mask()
+            classifier_for_mask = self.classifier_for_mask
+            update_classifier = False
+        return classifier_for_mask, update_classifier
+
+    @classmethod
+    def detach_layers(cls, layers):
+        return [l.detach() for l in layers]
 
 
 class InfillerCASMERunner(BaseRunner):

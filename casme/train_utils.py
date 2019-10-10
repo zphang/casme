@@ -45,8 +45,6 @@ def set_args(args):
     if args.reproduce != '':
         set_reproduction(args)
 
-    print('Args:', args)
-
     string_args = ''
     for name in sorted(vars(args)):
         string_args += name + '=' + str(getattr(args, name)) + ', '

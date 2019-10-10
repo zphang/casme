@@ -450,6 +450,37 @@ class MaskerInfillerPriorCriterion(nn.Module):
         return masker_loss, metadata
 
 
+def resolve_masker_criterion(masker_criterion_type, masker_criterion_config,
+                             lambda_r, lambda_tv,
+                             add_prob_layers, prob_loss_func,
+                             objective_direction, objective_type,
+                             device):
+    if masker_criterion_type == "crossentropy":
+        masker_criterion = MaskerCriterion(
+            lambda_r=lambda_r,
+            lambda_tv=lambda_tv,
+            add_prob_layers=add_prob_layers,
+            prob_loss_func=prob_loss_func,
+            objective_direction=objective_direction,
+            objective_type=objective_type,
+            device=device,
+        ).to(device)
+    elif masker_criterion_type == "kldivergence":
+        masker_criterion = MaskerPriorCriterion(
+            lambda_r=lambda_r,
+            class_weights=[1 / 1000] * 1000,
+            add_prob_layers=add_prob_layers,
+            prob_loss_func=prob_loss_func,
+            config=masker_criterion_config,
+            device=device,
+        ).to(device)
+    elif masker_criterion_type == "none":
+        masker_criterion = None
+    else:
+        raise KeyError(masker_criterion_type)
+    return masker_criterion
+
+
 class DiscriminatorCriterion(nn.Module):
     def __init__(self, device):
         super().__init__()

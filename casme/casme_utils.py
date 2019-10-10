@@ -12,15 +12,15 @@ def get_binarized_mask(input, model, use_p=None):
     return binarize_mask(mask.clone()), mask
 
 
-def get_masked_images(input, binary_mask, gray_scale=0, return_mask=False):
+def get_masked_images(images, binary_mask, gray_scale=0, return_mask=False):
     with torch.no_grad():
         if gray_scale > 0:
-            gray_background = torch.zeros_like(input) + 0.35
-            masked_in = binary_mask * input + (1 - binary_mask) * gray_background
-            masked_out = (1 - binary_mask) * input + binary_mask * gray_background
+            gray_background = torch.zeros_like(images) + 0.35
+            masked_in = binary_mask * images + (1 - binary_mask) * gray_background
+            masked_out = (1 - binary_mask) * images + binary_mask * gray_background
         else:
-            masked_in = binary_mask * input
-            masked_out = (1 - binary_mask) * input
+            masked_in = binary_mask * images
+            masked_out = (1 - binary_mask) * images
 
         if return_mask:
             return masked_in, masked_out, binary_mask

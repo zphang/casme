@@ -45,8 +45,6 @@ class RunConfiguration(zconf.RunConfig):
 
     upsample = zconf.attr(default='nearest',
                           help='mode for final upsample layer in the decoder (default: nearest)')
-    objective_direction = zconf.attr(default="maximize", help="maximize|minimize")
-    objective_type = zconf.attr(default="entropy", help="entropy|classification")
     fixed_classifier = zconf.attr(action='store_true',
                                   help='train classifier')
     prob_historic = zconf.attr(default=0.5, type=float,
@@ -58,10 +56,19 @@ class RunConfiguration(zconf.RunConfig):
     lambda_r = zconf.attr(default=10, type=float,
                           help='regularization weight controlling mask size')
     lambda_tv = zconf.attr(default=None, type=float)
-    masker_criterion = zconf.attr(default="crossentropy", type=str,
-                                  help='crossentropy|kldivergence')
-    masker_criterion_config = zconf.attr(default="", type=str,
-                                         help='etc')
+
+    mask_in_criterion = zconf.attr(default="none", type=str, help='crossentropy|kldivergence|none')
+    mask_in_criterion_config = zconf.attr(default="", type=str, help='etc')
+    mask_in_objective_direction = zconf.attr(default="maximize", help="maximize|minimize")
+    mask_in_objective_type = zconf.attr(default="entropy", help="entropy|classification")
+    mask_in_weight = zconf.attr(default=1.0, type=float)
+
+    mask_out_criterion = zconf.attr(default="none", type=str, help='crossentropy|kldivergence|none')
+    mask_out_criterion_config = zconf.attr(default="", type=str, help='etc')
+    mask_out_objective_direction = zconf.attr(default="maximize", help="maximize|minimize")
+    mask_out_objective_type = zconf.attr(default="entropy", help="entropy|classification")
+    mask_out_weight = zconf.attr(default=1.0, type=float)
+
     reproduce = zconf.attr(default='',
                            help='reproducing paper results (F|L|FL|L100|L1000)')
 
@@ -74,7 +81,7 @@ class RunConfiguration(zconf.RunConfig):
     casms_path = zconf.attr(default='')
     log_path = zconf.attr(default='')
 
-    def process(self):
+    def _post_init(self):
         randomhash = ''.join(str(time.time()).split('.'))
         self.name = self.name + "___" + randomhash
         set_args(self)
@@ -109,28 +116,28 @@ def main(args):
         batch_size=args.batch_size,
         workers=args.workers,
     )
-
-    if args.masker_criterion == "crossentropy":
-        masker_criterion = criterion.MaskerCriterion(
-            lambda_r=args.lambda_r,
-            lambda_tv=args.lambda_tv,
-            add_prob_layers=args.add_prob_layers,
-            prob_loss_func=args.prob_loss_func,
-            objective_direction=args.objective_direction,
-            objective_type=args.objective_type,
-            device=device,
-        )
-    elif args.masker_criterion == "kldivergence":
-        masker_criterion = criterion.MaskerPriorCriterion(
-            lambda_r=args.lambda_r,
-            class_weights=[1 / 1000] * 1000,
-            add_prob_layers=args.add_prob_layers,
-            prob_loss_func=args.prob_loss_func,
-            config=args.masker_criterion_config,
-            device=device,
-        )
-    else:
-        raise KeyError(args.masker_criterion)
+    mask_in_criterion = criterion.resolve_masker_criterion(
+        masker_criterion_type=args.mask_in_criterion,
+        masker_criterion_config=args.mask_in_criterion_config,
+        lambda_r=args.lambda_r,
+        lambda_tv=args.lambda_tv,
+        add_prob_layers=args.add_prob_layers,
+        prob_loss_func=args.prob_loss_func,
+        objective_direction=args.mask_in_objective_direction,
+        objective_type=args.mask_in_objective_type,
+        device=device,
+    )
+    mask_out_criterion = criterion.resolve_masker_criterion(
+        masker_criterion_type=args.mask_out_criterion,
+        masker_criterion_config=args.mask_out_criterion_config,
+        lambda_r=args.lambda_r,
+        lambda_tv=args.lambda_tv,
+        add_prob_layers=args.add_prob_layers,
+        prob_loss_func=args.prob_loss_func,
+        objective_direction=args.mask_out_objective_direction,
+        objective_type=args.mask_out_objective_type,
+        device=device,
+    )
 
     casme_runner = core.CASMERunner(
         classifier=classifier,
@@ -138,20 +145,19 @@ def main(args):
         classifier_optimizer=classifier_optimizer,
         masker_optimizer=masker_optimizer,
         classifier_criterion=nn.CrossEntropyLoss(),
-        masker_criterion=masker_criterion,
+        mask_in_criterion=mask_in_criterion,
+        mask_out_criterion=mask_out_criterion,
         fixed_classifier=args.fixed_classifier,
         perc_of_training=args.perc_of_training,
         prob_historic=args.prob_historic,
         save_freq=args.save_freq,
         zoo_size=args.f_size,
         image_normalization_mode=None,
-        mask_func=criterion.determine_mask_func(
-            objective_direction=args.objective_direction,
-            objective_type=args.objective_type,
-        ),
         add_prob_layers=args.add_prob_layers,
         prob_sample_low=args.prob_sample_low,
         prob_sample_high=args.prob_sample_high,
+        mask_in_weight=args.mask_in_weight,
+        mask_out_weight=args.mask_out_weight,
         print_freq=args.print_freq,
         device=device,
     )
@@ -204,6 +210,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-    args_ = RunConfiguration.run_cli_json_prepend()
-    args_.process()
-    main(args=args_)
+    main(args=RunConfiguration.run_cli_json_prepend())

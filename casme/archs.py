@@ -375,35 +375,36 @@ class Masker(nn.Module):
                 nn.ReLU(inplace=True)
             )
     
-    def forward(self, l, use_p):
+    def forward(self, layers, use_p):
         if self.add_prob_layers:
             assert use_p is not None
             if not isinstance(use_p, torch.Tensor):
-                batch_size = l[0].shape[0]
-                device = l[0].device
+                batch_size = layers[0].shape[0]
+                device = layers[0].device
                 use_p = torch.Tensor([use_p] * batch_size).to(device)
 
-            l = self.append_p(l, use_p)
+            layers = self.append_p(layers, use_p)
         else:
             assert use_p is None
 
         k = [
-            l[0],
-            self.conv1x1_1(l[1]),
-            self.conv1x1_2(l[2]),
-            self.conv1x1_3(l[3]),
-            self.conv1x1_4(l[4]),
+            layers[0],
+            self.conv1x1_1(layers[1]),
+            self.conv1x1_2(layers[2]),
+            self.conv1x1_3(layers[3]),
+            self.conv1x1_4(layers[4]),
         ]
         return self.final(torch.cat(k, 1))
 
-    def append_p(self, l, p):
-        new_l = []
-        for layer in l:
+    @classmethod
+    def append_p(cls, layers, p):
+        new_layers = []
+        for layer in layers:
             p_slice = p \
                 .expand(1, layer.shape[2], layer.shape[3], -1) \
                 .permute(3, 0, 1, 2)
-            new_l.append(torch.cat([layer, p_slice], dim=1))
-        return new_l
+            new_layers.append(torch.cat([layer, p_slice], dim=1))
+        return new_layers
 
 
 class InfillerCNN(nn.Module):

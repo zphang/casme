@@ -60,15 +60,15 @@ def main(args: RunConfiguration):
     dir_path = args.plots_path
     os.makedirs(dir_path, exist_ok=True)
 
-    for i, (input_, target) in enumerate(data_loader):
-        input_ = input_.to(device)
+    for i, (images, target) in enumerate(data_loader):
+        images = images.to(device)
         print('{} '.format(i), end='', flush=True)
         if i not in perm:
             print('skipped.')
             continue
 
         # === normalize first few images
-        normalized_input = input_.clone()
+        normalized_input = images.clone()
         for k in range(args.columns):
             imagenet_utils.NORMALIZATION(normalized_input[k])
 
@@ -78,7 +78,7 @@ def main(args: RunConfiguration):
 
         for j in range(soft_masked_image.size(0)):
             imagenet_utils.DENORMALIZATION(soft_masked_image[j])
-        masked_in, masked_out = get_masked_images(input_, binary_mask, 0.35)
+        masked_in, masked_out = get_masked_images(images, binary_mask, 0.35)
         inpainted = inpaint(binary_mask, masked_out)
 
         # === setup plot
@@ -94,7 +94,7 @@ def main(args: RunConfiguration):
 
         # === plot
         for col in range(args.columns):
-            axes[0, col].imshow(permute_image(input_[col]))
+            axes[0, col].imshow(permute_image(images[col]))
             axes[1, col].imshow(permute_image(masked_in[col]))
             axes[2, col].imshow(permute_image(masked_out[col]))
             axes[3, col].imshow(permute_image(inpainted[col]))
@@ -103,6 +103,12 @@ def main(args: RunConfiguration):
         for ax in axes.flatten():
             ax.set_xticks([])
             ax.set_yticks([])
+
+        axes[0, 0].set_ylabel("Original")
+        axes[1, 0].set_ylabel("Masked In")
+        axes[2, 0].set_ylabel("Masked Out")
+        axes[3, 0].set_ylabel("Bad Inpaint")
+        axes[4, 0].set_ylabel("Soft Masked Out")
 
         path = os.path.join(dir_path, str(i) + '.png')
         plt.savefig(path, dpi=300, bbox_inches='tight')
