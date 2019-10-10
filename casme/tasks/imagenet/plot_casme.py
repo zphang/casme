@@ -104,11 +104,11 @@ def main(args: RunConfiguration):
             ax.set_xticks([])
             ax.set_yticks([])
 
-        axes[0, 0].set_ylabel("Original")
-        axes[1, 0].set_ylabel("Masked In")
-        axes[2, 0].set_ylabel("Masked Out")
-        axes[3, 0].set_ylabel("Bad Inpaint")
-        axes[4, 0].set_ylabel("Soft Masked Out")
+        axes[0, 0].set_ylabel("Original", fontsize=4)
+        axes[1, 0].set_ylabel("Masked In", fontsize=4)
+        axes[2, 0].set_ylabel("Masked Out", fontsize=4)
+        axes[3, 0].set_ylabel("Bad Inpaint", fontsize=4)
+        axes[4, 0].set_ylabel("Soft Masked Out", fontsize=4)
 
         path = os.path.join(dir_path, str(i) + '.png')
         plt.savefig(path, dpi=300, bbox_inches='tight')

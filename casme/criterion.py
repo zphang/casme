@@ -6,6 +6,8 @@ import torch.nn.functional as F
 
 from .ext.pytorch_inpainting_with_partial_conv import gram_matrix, total_variation_loss
 
+from pyutils.datastructures import combine_dicts
+
 
 class MaskFunc:
 
@@ -100,6 +102,7 @@ class InfillerCriterion(nn.Module):
 class MaskerCriterion(nn.Module):
     def __init__(self, lambda_r, add_prob_layers, prob_loss_func,
                  objective_direction, objective_type,
+                 mask_reg_mode,
                  device, y_hat_log_softmax=False, lambda_tv=None):
         super().__init__()
         self.lambda_r = lambda_r
@@ -107,9 +110,12 @@ class MaskerCriterion(nn.Module):
         self.prob_loss_func = prob_loss_func
         self.objective_direction = objective_direction
         self.objective_type = objective_type
+        self.mask_reg_mode = mask_reg_mode
         self.device = device
         self.y_hat_log_softmax = y_hat_log_softmax
         self.lambda_tv = lambda_tv
+
+        assert mask_reg_mode in ["mask_in", "mask_out"]
 
     def forward(self,
                 mask, y_hat, y_hat_from_masked_x, y,
@@ -117,8 +123,6 @@ class MaskerCriterion(nn.Module):
         _, max_indexes = y_hat.detach().max(1)
         _, max_indexes_on_masked_x = y_hat_from_masked_x.detach().max(1)
         correct_on_clean = y.eq(max_indexes)
-        mistaken_on_masked = y.ne(max_indexes_on_masked_x)
-        nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
 
         mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
         if self.add_prob_layers:
@@ -132,7 +136,11 @@ class MaskerCriterion(nn.Module):
                 raise KeyError(self.prob_loss_func)
 
         # apply regularization loss only on non-trivially confused images
-        mask_reg = -self.lambda_r * F.relu(nontrivially_confused - mask_mean).mean()
+        mask_reg, mask_reg_metadata = self.compute_mask_regularization(
+            y=y, max_indexes_on_masked_x=max_indexes_on_masked_x,
+            correct_on_clean=correct_on_clean, mask_mean=mask_mean,
+            reduce=reduce,
+        )
         tv_reg = tv_loss(img=mask, tv_weight=self.lambda_tv)
         regularization = mask_reg + tv_reg
 
@@ -148,23 +156,19 @@ class MaskerCriterion(nn.Module):
             regularization = regularization.mean()
             metadata = {
                 "correct_on_clean": correct_on_clean.float().mean(),
-                "mistaken_on_masked": mistaken_on_masked.float().mean(),
-                "nontrivially_confused": nontrivially_confused.float().mean(),
                 "loss": loss,
                 "regularization": regularization,
-                "mask_reg": mask_reg,
                 "tv_reg": tv_reg,
             }
         else:
             metadata = {
                 "correct_on_clean": correct_on_clean.float(),
-                "mistaken_on_masked": mistaken_on_masked.float(),
-                "nontrivially_confused": nontrivially_confused.float(),
                 "loss": loss,
                 "regularization": regularization,
-                "mask_reg": mask_reg,
                 "tv_reg": tv_reg,
             }
+
+        metadata = combine_dicts([metadata, mask_reg_metadata], strict=True)
         if self.objective_type == "entropy":
             metadata["negative_entropy"] = loss_metadata["negative_entropy"]
         return masker_loss, metadata
@@ -213,6 +217,71 @@ class MaskerCriterion(nn.Module):
             return loss
         else:
             raise KeyError(self.loss_type)
+
+    def compute_mask_out_regularization(self, y, max_indexes_on_masked_x, correct_on_clean, mask_mean,
+                                        reduce):
+        """
+        nontrivially_confused = 1 if correct on clean, wrong in masked
+        mask_mean = mask% for that image
+        F.relu(nontrivially_confused - mask_mean) > 0 only if nontrivially confused
+
+        small mask -> large F.relu -> more negative
+        """
+        mistaken_on_masked = y.ne(max_indexes_on_masked_x)
+        nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
+        mask_reg = -self.lambda_r * F.relu(nontrivially_confused - mask_mean)
+        mask_reg_mean = mask_reg.mean()
+        if reduce:
+            mask_reg_metadata = {
+                "mistaken_on_masked": mistaken_on_masked.float().mean(),
+                "nontrivially_confused": nontrivially_confused.mean(),
+                "mask_reg": mask_reg_mean,
+            }
+        else:
+            mask_reg_metadata = {
+                "mistaken_on_masked": mistaken_on_masked.float(),
+                "nontrivially_confused": nontrivially_confused,
+                "mask_reg": mask_reg,
+            }
+        return mask_reg_mean, mask_reg_metadata
+
+    def compute_mask_in_regularization(self, y, max_indexes_on_masked_x, mask_mean, reduce):
+        """
+         F.relu(correct_on_masked - mask_mean) > 0 only if correct on masked
+        """
+        correct_on_masked = y.eq(max_indexes_on_masked_x).float()
+        mask_reg = -self.lambda_r * F.relu(correct_on_masked - mask_mean)
+        mask_reg_mean = mask_reg.mean()
+        if reduce:
+            mask_reg_metadata = {
+                "correct_on_masked": correct_on_masked.mean(),
+                "mask_reg": mask_reg_mean,
+            }
+        else:
+            mask_reg_metadata = {
+                "correct_on_masked": correct_on_masked,
+                "mask_reg": mask_reg,
+            }
+        return mask_reg_mean, mask_reg_metadata
+
+    def compute_mask_regularization(self, y, max_indexes_on_masked_x, correct_on_clean, mask_mean, reduce=True):
+        if self.mask_reg_mode == "mask_out":
+            return self.compute_mask_out_regularization(
+                y=y,
+                max_indexes_on_masked_x=max_indexes_on_masked_x,
+                correct_on_clean=correct_on_clean,
+                mask_mean=mask_mean,
+                reduce=reduce,
+            )
+        elif self.mask_reg_mode == "mask_in":
+            return self.compute_mask_in_regularization(
+                y=y,
+                max_indexes_on_masked_x=max_indexes_on_masked_x,
+                mask_mean=mask_mean,
+                reduce=reduce,
+            )
+        else:
+            raise KeyError(self.mask_reg_mode)
 
 
 class MaskerPriorCriterion(nn.Module):
@@ -451,6 +520,7 @@ class MaskerInfillerPriorCriterion(nn.Module):
 
 
 def resolve_masker_criterion(masker_criterion_type, masker_criterion_config,
+                             mask_reg_mode,
                              lambda_r, lambda_tv,
                              add_prob_layers, prob_loss_func,
                              objective_direction, objective_type,
@@ -463,6 +533,7 @@ def resolve_masker_criterion(masker_criterion_type, masker_criterion_config,
             prob_loss_func=prob_loss_func,
             objective_direction=objective_direction,
             objective_type=objective_type,
+            mask_reg_mode=mask_reg_mode,
             device=device,
         ).to(device)
     elif masker_criterion_type == "kldivergence":
@@ -520,7 +591,7 @@ def determine_mask_func(objective_direction, objective_type):
 
 
 def tv_loss(img, tv_weight):
-    if tv_weight is None:
+    if tv_weight is None or tv_weight == 0:
         return 0.0
     # https://github.com/chongyangma/cs231n/blob/master/assignments/assignment3/style_transfer_pytorch.py
     w_variance = torch.sum(torch.pow(img[:, :, :, :-1] - img[:, :, :, 1:], 2))

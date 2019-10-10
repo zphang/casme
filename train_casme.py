@@ -125,6 +125,7 @@ def main(args):
         prob_loss_func=args.prob_loss_func,
         objective_direction=args.mask_in_objective_direction,
         objective_type=args.mask_in_objective_type,
+        mask_reg_mode="mask_in",
         device=device,
     )
     mask_out_criterion = criterion.resolve_masker_criterion(
@@ -136,6 +137,7 @@ def main(args):
         prob_loss_func=args.prob_loss_func,
         objective_direction=args.mask_out_objective_direction,
         objective_type=args.mask_out_objective_type,
+        mask_reg_mode="mask_out",
         device=device,
     )
 
