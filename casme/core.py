@@ -49,7 +49,6 @@ class CASMERunner(BaseRunner):
                  add_prob_layers, prob_sample_low, prob_sample_high,
                  mask_in_weight,
                  mask_out_weight,
-                 print_freq,
                  device,
                  logger: zlog.BaseZLogger = zlog.PRINT_LOGGER,
                  ):
@@ -75,7 +74,6 @@ class CASMERunner(BaseRunner):
         self.mask_in_weight = mask_in_weight
         self.mask_out_weight = mask_out_weight
 
-        self.print_freq = print_freq
         self.device = device
         self.logger = logger
 
@@ -92,19 +90,18 @@ class CASMERunner(BaseRunner):
             x, y = x.to(self.device), y.to(self.device)
             x = per_image_normalization(x, mode=self.image_normalization_mode)
             self.train_or_eval_batch(x=x, y=y, i=i, is_train=is_train)
-            if i % self.print_freq == 0:
-                if is_train:
-                    self.logger.write_entry("train_status", {
-                        "epoch": epoch,
-                        "i": i,
-                        "epoch_t": int(len(data_loader) * self.perc_of_training),
-                        "dataset_t": len(data_loader),
-                    })
-                else:
-                    self.logger.write_entry("train_status", {
-                        "i": i,
-                        "dataset_t": len(data_loader),
-                    })
+            if is_train:
+                self.logger.write_entry("train_status", {
+                    "epoch": epoch,
+                    "i": i,
+                    "epoch_t": int(len(data_loader) * self.perc_of_training),
+                    "dataset_t": len(data_loader),
+                })
+            else:
+                self.logger.write_entry("val_status", {
+                    "i": i,
+                    "dataset_t": len(data_loader),
+                })
 
     def train_or_eval_batch(self, x, y, i, epoch=None, is_train=False):
         log_data = LogData({"epoch": epoch, "i": i})
@@ -163,9 +160,9 @@ class CASMERunner(BaseRunner):
                 )
                 log_data["masked_out___classifier_loss"] = classifier_loss_from_masked_out_x.item()
                 log_data["masked_out___acc"] = accuracy(y_hat_from_masked_out_x.detach(), y, topk=(1,))[0].item()
-                log_data["masked_out___mistaken_on_masked"] = mask_in_loss_metadata["mistaken_on_masked"].item()
-                log_data["masked_out___nontrivially_confused"] = mask_in_loss_metadata["nontrivially_confused"].item()
-                log_data["masked_out___mask_reg"] = mask_in_loss_metadata["mask_reg"].item()
+                log_data["masked_out___mistaken_on_masked"] = mask_out_loss_metadata["mistaken_on_masked"].item()
+                log_data["masked_out___nontrivially_confused"] = mask_out_loss_metadata["nontrivially_confused"].item()
+                log_data["masked_out___mask_reg"] = mask_out_loss_metadata["mask_reg"].item()
             else:
                 classifier_loss_from_masked_out_x = mask_out_loss = 0
 
@@ -190,7 +187,7 @@ class CASMERunner(BaseRunner):
             self.masker_optimizer_step(masker_total_loss)
 
         phase = "train" if is_train else "val"
-        self.logger.write_entry(f"{phase}_batch_stats", log_data.to_dict())
+        self.logger.write_entry("{}_batch_stats".format(phase), log_data.to_dict())
 
     def models_mode(self, train):
         if train:
@@ -207,7 +204,7 @@ class CASMERunner(BaseRunner):
         # save classifier (needed only if previous iterations are used i.e. args.hp > 0)
         if self.prob_historic > 0 \
                 and ((i % self.save_freq == -1 % self.save_freq) or len(self.classifier_zoo) < 1):
-            self.logger.log('Current iteration is saving, will be used in the future. ', no_enter=True)
+            self.logger.write_entry("messages", 'Current iteration is saving, will be used in the future. ')
             if len(self.classifier_zoo) < self.zoo_size:
                 index = len(self.classifier_zoo)
             else:
@@ -216,7 +213,7 @@ class CASMERunner(BaseRunner):
             self.classifier_zoo[index] = {}
             for p in state_dict:
                 self.classifier_zoo[index][p] = state_dict[p].cpu()
-            self.logger.log('There are {0} iterations stored.'.format(len(self.classifier_zoo)))
+            self.logger.write_entry("messages", 'There are {0} iterations stored.'.format(len(self.classifier_zoo)))
 
     def setup_classifier_for_mask(self):
         if self.classifier_for_mask is None:

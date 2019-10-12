@@ -89,10 +89,10 @@ class RunConfiguration(zconf.RunConfig):
 
 
 def main(args):
+    print("Path: {}".format(args.casms_path))
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # create models and optimizers
-    print("=> creating models...")
     classifier = archs.resnet50shared(pretrained=True).to(device)
     masker = archs.default_masker(
         final_upsample_mode=args.upsample,
@@ -159,11 +159,11 @@ def main(args):
         prob_sample_high=args.prob_sample_high,
         mask_in_weight=args.mask_in_weight,
         mask_out_weight=args.mask_out_weight,
-        print_freq=args.print_freq,
         device=device,
         logger=zlog.ZBufferedLogger(
             fol_path=args.log_path,
-            default_buffer_size=args.log_buffer,
+            buffer_size_dict={"messages": 1},
+            default_buffer_size=1,
         )
     )
 

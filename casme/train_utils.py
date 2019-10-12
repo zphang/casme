@@ -49,11 +49,6 @@ def set_args(args):
     for name in sorted(vars(args)):
         string_args += name + '=' + str(getattr(args, name)) + ', '
 
-    with open(args.log_path, 'a') as f:
-        f.write(string_args + '\n')
-        f.write('epoch time acc_tr acc_val acc_m_tr acc_m_val avg_mask_tr avg_mask_val '
-                'std_mask_tr std_mask_val ent_mask_tr ent_mask_val tv_tr tv_val\n')
-
 
 def set_reproduction(args):
     if args.reproduce == 'F':
