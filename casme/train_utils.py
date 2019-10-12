@@ -40,7 +40,7 @@ def set_args(args):
     os.makedirs(args.output_path, exist_ok=True)
     args.casms_path = os.path.join(args.output_path, args.name)
     os.makedirs(args.casms_path, exist_ok=True)
-    args.log_path = os.path.join(args.casms_path, 'log.log')
+    args.log_path = os.path.join(args.casms_path, 'log')
 
     if args.reproduce != '':
         set_reproduction(args)

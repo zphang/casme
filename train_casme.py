@@ -11,6 +11,8 @@ from casme.tasks.imagenet.utils import get_data_loaders
 
 import zconf
 
+import zproto.zlogv1 as zlog
+
 
 @zconf.run_config
 class RunConfiguration(zconf.RunConfig):
@@ -21,8 +23,7 @@ class RunConfiguration(zconf.RunConfig):
     output_path = zconf.attr(help='output_path')
     name = zconf.attr(default='random',
                       help='name used to build a path where the models and log are saved (default: random)')
-    print_freq = zconf.attr(default=100, type=int,
-                            help='print frequency (default: 100)')
+    log_buffer = zconf.attr(default=10, type=int, help='log buffer')
     workers = zconf.attr(default=4, type=int,
                          help='number of data loading workers (default: 4)')
 
@@ -93,9 +94,7 @@ def main(args):
     # create models and optimizers
     print("=> creating models...")
     classifier = archs.resnet50shared(pretrained=True).to(device)
-    masker = archs.Masker(
-        in_channels=[64, 256, 512, 1024, 2048],
-        out_channel=64,
+    masker = archs.default_masker(
         final_upsample_mode=args.upsample,
         add_prob_layers=args.add_prob_layers,
     ).to(device)
@@ -162,12 +161,14 @@ def main(args):
         mask_out_weight=args.mask_out_weight,
         print_freq=args.print_freq,
         device=device,
+        logger=zlog.ZBufferedLogger(
+            fol_path=args.log_path,
+            default_buffer_size=args.log_buffer,
+        )
     )
 
     # training loop
     for epoch in range(args.epochs):
-        epoch_start_time = time.time()
-
         single_adjust_learning_rate(
             optimizer=classifier_optimizer,
             epoch=epoch, lr=args.lr, lrde=args.lrde,
@@ -178,14 +179,14 @@ def main(args):
         )
 
         # train for one epoch
-        tr_s = casme_runner.train_or_eval(
+        casme_runner.train_or_eval(
             data_loader=train_loader,
             is_train=True,
             epoch=epoch,
         )
 
         # evaluate on validation set
-        val_s = casme_runner.train_or_eval(
+        casme_runner.train_or_eval(
             data_loader=val_loader,
             is_train=False,
             epoch=epoch
@@ -200,15 +201,6 @@ def main(args):
             'optimizer_masker': masker_optimizer.state_dict(),
             'args': args,
         }, args)
-
-        # log
-        with open(args.log_path, 'a') as f:
-            f.write(str(epoch + 1) + ' ' + str(time.time() - epoch_start_time) + ' ' +
-                    tr_s['acc'] + ' ' + val_s['acc'] + ' ' + tr_s['acc_m'] + ' ' + val_s['acc_m'] + ' ' +
-                    tr_s['avg_mask'] + ' ' + val_s['avg_mask'] + ' ' +
-                    tr_s['std_mask'] + ' ' + val_s['std_mask'] + ' ' +
-                    tr_s['entropy'] + ' ' + val_s['entropy'] + ' ' +
-                    tr_s['tv'] + ' ' + val_s['tv'] + '\n')
 
 
 if __name__ == '__main__':

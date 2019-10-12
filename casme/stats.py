@@ -55,6 +55,29 @@ class TimeMeter:
         self.time_mark = time.time()
 
 
+def mask_to_stats(mask):
+    mask_stats = {}
+    with torch.no_grad():
+        mask = mask.detach()
+
+        mask_stats["mask_avg"] = mask.mean().item()
+        mask_stats["mask_std"] = mask.mean(3).mean(2).std().item()
+
+        flat = mask.view(-1).cpu().numpy()
+        non_zero_flat = flat[flat > 0]
+        clear_flat = non_zero_flat[non_zero_flat < 1]
+        clear_flat_log2 = np.log2(clear_flat)
+        sum_across_batch = -np.sum(clear_flat * clear_flat_log2)
+        mask_stats["mask_entropy"] = sum_across_batch / flat.size
+
+        tv = (
+                (mask[:, :, :, :-1] - mask[:, :, :, 1:]).pow(2).mean()
+                + (mask[:, :, :-1, :] - mask[:, :, 1:, :]).pow(2).mean()
+        )
+        mask_stats["mask_tv"] = tv.item()
+    return mask_stats
+
+
 class StatisticsContainer:
     def __init__(self):
         self.avg = None

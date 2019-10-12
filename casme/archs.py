@@ -607,5 +607,5 @@ def should_train_infiller(infiller_model):
         raise KeyError(infiller_model)
 
 
-def masker(**kwargs):
+def default_masker(**kwargs):
     return Masker([64, 256, 512, 1024, 2048], 64, **kwargs)

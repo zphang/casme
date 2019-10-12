@@ -1,27 +1,31 @@
 import copy
 import datetime as dt
 import random
-import sys
 import torch
 
 from . import log_container
 from . import criterion
 from .casme_utils import per_image_normalization
 from .train_utils import accuracy
+from .stats import mask_to_stats
+
+import zproto.zlogv1 as zlog
 
 
-class PrintLogger:
-    @classmethod
-    def log(cls, string_to_log="", log_log=True, print_log=True, no_enter=False):
-        sep = "" if no_enter else "\n"
-        print(string_to_log, sep=sep)
+class LogData:
+    def __init__(self, data=None):
+        self.data = data if data else {}
 
-    @classmethod
-    def flush(cls):
-        sys.stdout.flush()
+    def add_dict(self, d):
+        for k, v in d.items():
+            assert k not in self.data
+            self.data[k] = v
 
-    def close(self):
-        pass
+    def __setitem__(self, key, value):
+        self.data[key] = value
+
+    def to_dict(self):
+        return self.data
 
 
 class BaseRunner:
@@ -47,7 +51,7 @@ class CASMERunner(BaseRunner):
                  mask_out_weight,
                  print_freq,
                  device,
-                 logger=None,
+                 logger: zlog.BaseZLogger = zlog.PRINT_LOGGER,
                  ):
         self.classifier = classifier
         self.classifier_for_mask = None
@@ -73,7 +77,7 @@ class CASMERunner(BaseRunner):
 
         self.print_freq = print_freq
         self.device = device
-        self.logger = logger if logger is not None else PrintLogger()
+        self.logger = logger
 
         self.do_mask_in = self.mask_in_criterion is not None
         self.do_mask_out = self.mask_out_criterion is not None
@@ -81,53 +85,29 @@ class CASMERunner(BaseRunner):
         assert self.do_mask_in or self.do_mask_out
 
     def train_or_eval(self, data_loader, is_train=False, epoch=None):
-        log_containers = log_container.LogContainers()
         self.models_mode(is_train)
         for i, (x, y) in enumerate(data_loader):
             if is_train and i > len(data_loader) * self.perc_of_training:
                 break
             x, y = x.to(self.device), y.to(self.device)
             x = per_image_normalization(x, mode=self.image_normalization_mode)
-            log_containers.data_time.update()
-            self.train_or_eval_batch(
-                x, y, i,
-                log_containers=log_containers, is_train=is_train,
-            )
-            # print log
+            self.train_or_eval_batch(x=x, y=y, i=i, is_train=is_train)
             if i % self.print_freq == 0:
                 if is_train:
-                    self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
-                        epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), no_enter=True)
+                    self.logger.write_entry("train_status", {
+                        "epoch": epoch,
+                        "i": i,
+                        "epoch_t": int(len(data_loader) * self.perc_of_training),
+                        "dataset_t": len(data_loader),
+                    })
                 else:
-                    self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), no_enter=True)
-                self.logger.log('Time {lc.batch_time.avg:.3f} ({lc.batch_time.val:.3f})\t'
-                                'Data {lc.data_time.avg:.3f} ({lc.data_time.val:.3f})\n'
-                                'Loss(C) {lc.losses.avg:.4f} ({lc.losses.val:.4f})\t'
-                                'Prec@1(C) {lc.acc.avg:.3f} ({lc.acc.val:.3f})\n'
-                                'Loss(M) {lc.losses_m.avg:.4f} ({lc.losses_m.val:.4f})\t'
-                                'Prec@1(M) {lc.acc_m.avg:.3f} ({lc.acc_m.val:.3f})\n'
-                                'MTLoss(M) {lc.masker_total_loss.avg:.4f} ({lc.masker_total_loss.val:.4f})\t'
-                                'MLoss(M) {lc.masker_loss.avg:.4f} ({lc.masker_loss.val:.4f})\t'
-                                'MReg(M) {lc.masker_reg.avg:.4f} ({lc.masker_reg.val:.4f})\n'
-                                'CoC {lc.correct_on_clean.avg:.3f} ({lc.correct_on_clean.val:.3f})\t'
-                                'MoM {lc.mistaken_on_masked.avg:.3f} ({lc.mistaken_on_masked.val:.3f})\t'
-                                'NC {lc.nontrivially_confused.avg:.3f} ({lc.nontrivially_confused.val:.3f})\t'
-                                ''.format(lc=log_containers))
-                log_containers.statistics.print_out()
-                self.logger.log('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
-                self.logger.log()
+                    self.logger.write_entry("train_status", {
+                        "i": i,
+                        "dataset_t": len(data_loader),
+                    })
 
-        if not is_train:
-            self.logger.log(' * Prec@1 {lc.acc.avg:.3f} Prec@1(M) {lc.acc_m.avg:.3f} '.format(lc=log_containers))
-            log_containers.statistics.print_out()
-
-        return {
-            'acc': str(log_containers.acc.avg),
-            'acc_m': str(log_containers.acc_m.avg),
-            **log_containers.statistics.get_dictionary()
-        }
-
-    def train_or_eval_batch(self, x, y, i, log_containers, is_train=False):
+    def train_or_eval_batch(self, x, y, i, epoch=None, is_train=False):
+        log_data = LogData({"epoch": epoch, "i": i})
 
         if self.add_prob_layers:
             use_p = torch.Tensor(x.shape[0])\
@@ -141,11 +121,8 @@ class CASMERunner(BaseRunner):
             y_hat, layers = self.classifier(x, return_intermediate=True)
             classifier_loss = self.classifier_criterion(y_hat, y)
 
-        """
-        # update metrics
-        log_containers.losses.update(classifier_loss.item(), x.size(0))
-        log_containers.acc.update(accuracy(y_hat.detach(), y, topk=(1,))[0].item(), x.size(0))
-        """
+        log_data["classifier_loss"] = classifier_loss.item()
+        log_data["acc"] = accuracy(y_hat.detach(), y, topk=(1,))[0].item()
 
         # update classifier - compute gradient and do SGD step for clean image, save classifier
         if is_train and (not self.fixed_classifier):
@@ -159,9 +136,8 @@ class CASMERunner(BaseRunner):
                 use_p=use_p,
             )
             classifier_for_mask, update_classifier = self.choose_masked_classifier(is_train)
-            """
-            log_containers.statistics.update(mask)
-            """
+            log_data.add_dict(mask_to_stats(mask))
+
             if self.do_mask_in:
                 masked_in_x = criterion.MaskFunc.mask_in(x=x, mask=mask)
                 y_hat_from_masked_in_x = self.classifier(masked_in_x)
@@ -170,9 +146,12 @@ class CASMERunner(BaseRunner):
                     mask=mask, y_hat=y_hat, y_hat_from_masked_x=y_hat_from_masked_in_x, y=y,
                     classifier_loss_from_masked_x=classifier_loss_from_masked_in_x, use_p=use_p,
                 )
+                log_data["masked_in___classifier_loss"] = classifier_loss_from_masked_in_x.item()
+                log_data["masked_in___acc"] = accuracy(y_hat_from_masked_in_x.detach(), y, topk=(1,))[0].item()
+                log_data["masked_in___correct_on_masked"] = mask_in_loss_metadata["correct_on_masked"].item()
+                log_data["masked_in___mask_reg"] = mask_in_loss_metadata["mask_reg"].item()
             else:
                 classifier_loss_from_masked_in_x = mask_in_loss = 0
-                mask_in_loss_metadata = None
 
             if self.do_mask_out:
                 masked_out_x = criterion.MaskFunc.mask_out(x=x, mask=mask)
@@ -182,9 +161,13 @@ class CASMERunner(BaseRunner):
                     mask=mask, y_hat=y_hat, y_hat_from_masked_x=y_hat_from_masked_out_x, y=y,
                     classifier_loss_from_masked_x=classifier_loss_from_masked_out_x, use_p=use_p,
                 )
+                log_data["masked_out___classifier_loss"] = classifier_loss_from_masked_out_x.item()
+                log_data["masked_out___acc"] = accuracy(y_hat_from_masked_out_x.detach(), y, topk=(1,))[0].item()
+                log_data["masked_out___mistaken_on_masked"] = mask_in_loss_metadata["mistaken_on_masked"].item()
+                log_data["masked_out___nontrivially_confused"] = mask_in_loss_metadata["nontrivially_confused"].item()
+                log_data["masked_out___mask_reg"] = mask_in_loss_metadata["mask_reg"].item()
             else:
                 classifier_loss_from_masked_out_x = mask_out_loss = 0
-                mask_out_loss_metadata = None
 
             classifier_loss_from_masked_x = (
                 self.mask_in_weight * classifier_loss_from_masked_in_x
@@ -195,12 +178,8 @@ class CASMERunner(BaseRunner):
                 + self.mask_out_weight * mask_out_loss
             )
 
-            """
-            # update metrics
-            log_containers.losses_m.update(classifier_loss_from_masked_x.item(), x.size(0))
-            log_containers.acc_m.update(accuracy(
-                y_hat_from_masked_x.detach(), y, topk=(1,))[0].item(), x.size(0))
-            """
+            log_data["masked_total___classifier_loss"] = classifier_loss_from_masked_x.item()
+            log_data["masked_total___loss"] = masker_total_loss.item()
 
         if is_train:
             # update classifier - compute gradient, do SGD step for masked image
@@ -210,17 +189,8 @@ class CASMERunner(BaseRunner):
             # update casme - compute gradient, do SGD step
             self.masker_optimizer_step(masker_total_loss)
 
-            """
-            log_containers.masker_total_loss.update(masker_total_loss.item(), x.size(0))
-            log_containers.masker_loss.update(masker_loss_metadata["loss"].item(), x.size(0))
-            log_containers.masker_reg.update(masker_loss_metadata["regularization"].item(), x.size(0))
-            log_containers.correct_on_clean.update(masker_loss_metadata["correct_on_clean"].item(), x.size(0))
-            log_containers.mistaken_on_masked.update(masker_loss_metadata["mistaken_on_masked"].item(), x.size(0))
-            log_containers.nontrivially_confused.update(masker_loss_metadata["nontrivially_confused"].item(), x.size(0))
-            """
-
-        # measure elapsed time
-        log_containers.batch_time.update()
+        phase = "train" if is_train else "val"
+        self.logger.write_entry(f"{phase}_batch_stats", log_data.to_dict())
 
     def models_mode(self, train):
         if train:
@@ -325,7 +295,7 @@ class InfillerCASMERunner(BaseRunner):
         self.prob_sample_high = prob_sample_high
         self.print_freq = print_freq
         self.device = device
-        self.logger = logger if logger is not None else PrintLogger()
+        self.logger = logger
         self.mask_func = mask_func
 
         self.classifier_zoo = {}

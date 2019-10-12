@@ -180,14 +180,14 @@ class MaskerCriterion(nn.Module):
         # main loss for casme
         if self.objective_type == "classification":
             if reduce:
-                objective = classifier_loss_from_masked_x
+                objective = - classifier_loss_from_masked_x
             else:
                 # This is a hack.
                 if self.y_hat_log_softmax:
                     classifier_criterion = F.nll_loss
                 else:
                     classifier_criterion = F.cross_entropy
-                objective = classifier_criterion(y_hat_from_masked_x, y, reduction='none')
+                objective = - classifier_criterion(y_hat_from_masked_x, y, reduction='none')
         elif self.objective_type == "entropy":
             if self.y_hat_log_softmax:
                 log_prob = y_hat_from_masked_x
