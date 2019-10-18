@@ -11,7 +11,7 @@ import zconf
 class RunConfiguration(zconf.RunConfig):
     mode = zconf.attr()
     base_path = zconf.attr()
-    output_path = zconf.attr()
+    output_path = zconf.attr(default=None)
 
     workers = zconf.attr(default=4, type=int, help='number of data loading workers (default: 4)')
     batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 256)')
@@ -22,11 +22,11 @@ class RunConfiguration(zconf.RunConfig):
 
 
 def main(args: RunConfiguration):
-    if args.mode not in ("center", "max"):
-        casm_path = utils.find_best_model(args.base_path)
-    else:
+    if args.mode in ("center", "max"):
         casm_path = None
-    print("Scoring {}".format(args.casm_path))
+    else:
+        casm_path = utils.find_best_model(args.base_path)
+    print("Scoring {}".format(casm_path))
 
     if not args.output_path:
         output_path = os.path.join(args.base_path, "score.json")
@@ -34,7 +34,7 @@ def main(args: RunConfiguration):
         output_path = args.output_path
 
     score_bboxes_args = score_bboxes.RunConfiguration(
-        val_json="/gpfs/data/geraslab/zphang/working/1910/03_salmap_prep/imagenet_paths/train_val.json",
+        val_json="/gpfs/data/geraslab/zphang/working/1910/03_salmap_prep/imagenet_paths/val.json",
         mode=args.mode,
         bboxes_path='/gpfs/data/geraslab/zphang/working/190624_new_casme/imagenet_annotation.json',
         casm_path=casm_path,

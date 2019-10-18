@@ -101,10 +101,10 @@ def get_masks_and_check_predictions(input, target, model, erode_k=0, dilate_k=0)
         return mask.squeeze().cpu().numpy(), rectangular.squeeze().cpu().numpy(), isCorrect.cpu().numpy() 
 
 
-def get_mask(input, model, use_p=None, get_output=False):
+def get_mask(input_, model, use_p=None, get_output=False):
     with torch.no_grad():
-        input = input.to(device)
-        classifier_output, layers = model['classifier'](input, return_intermediate=True)
+        input_ = input_.to(device)
+        classifier_output, layers = model['classifier'](input_, return_intermediate=True)
         masker_output = model['masker'](layers, use_p=use_p)
         if get_output:
             return masker_output, classifier_output

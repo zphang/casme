@@ -35,7 +35,7 @@ def main(args: RunConfiguration):
     # data loading code
     data_loader = torch.utils.data.DataLoader(
         ImageJsonDataset(
-            os.path.join(args.val_json, 'val'),
+            args.val_json,
             transforms.Compose([
                 transforms.Resize([224, 224] if args.break_ratio else 224),
                 transforms.CenterCrop(224),
@@ -94,8 +94,6 @@ def score(args, model, data_loader, bboxes):
             break
 
         data_time += time.time() - end
-
-        input_, target = input_.numpy(), target.numpy()
 
         # compute continuous mask, rectangular mask and compare class predictions with targets
         if 'special' in model.keys():
