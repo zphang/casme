@@ -4,7 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .ext.pytorch_inpainting_with_partial_conv import gram_matrix, total_variation_loss
+from casme.ext.pytorch_inpainting_with_partial_conv import gram_matrix, total_variation_loss
+from casme.ext.torchray import imsmooth
+
 
 from pyutils.datastructures import combine_dicts
 
@@ -13,7 +15,9 @@ class MaskFunc:
 
     MASK_IN = "MASK_IN"
     MASK_OUT = "MASK_OUT"
-    MODES = [MASK_IN, MASK_OUT]
+    MASK_IN_AND_BLUR = "MASK_IN_AND_BLUR"
+    MASK_OUT_AND_BLUR = "MASK_OUT_AND_BLUR"
+    MODES = [MASK_IN, MASK_OUT, MASK_IN_AND_BLUR, MASK_OUT_AND_BLUR]
 
     def __init__(self, mask_mode):
         assert mask_mode in self.MODES
@@ -24,6 +28,10 @@ class MaskFunc:
             return self.mask_in(x, mask)
         elif self.mask_mode == self.MASK_OUT:
             return self.mask_out(x, mask)
+        if self.mask_mode == self.MASK_IN_AND_BLUR:
+            return self.mask_in_and_blur(x, mask)
+        elif self.mask_mode == self.MASK_OUT_AND_BLUR:
+            return self.mask_out_and_blur(x, mask)
         else:
             raise KeyError(self.mask_mode)
 
@@ -34,6 +42,14 @@ class MaskFunc:
     @staticmethod
     def mask_in(x, mask):
         return x * mask
+
+    @staticmethod
+    def mask_out_and_blur(x, mask, sigma=20):
+        return x * (1 - mask) + imsmooth(x, sigma) * mask
+
+    @staticmethod
+    def mask_in_and_blur(x, mask, sigma=20):
+        return x * mask + imsmooth(x, sigma) * (1-mask)
 
 
 def apply_uniform_random_value_mask_func(x, mask):

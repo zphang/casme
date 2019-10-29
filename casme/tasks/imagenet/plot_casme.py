@@ -5,6 +5,7 @@ import torch
 import torchvision.transforms as transforms
 
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 from casme.model_basics import casme_load_model
 from casme.utils.torch_utils import ImageJsonDataset
@@ -60,63 +61,66 @@ def main(args: RunConfiguration):
     dir_path = args.plots_path
     os.makedirs(dir_path, exist_ok=True)
 
-    for i, (images, target) in enumerate(data_loader):
-        images = images.to(device)
-        print('{} '.format(i), end='', flush=True)
-        if i not in perm:
-            print('skipped.')
-            continue
+    with PdfPages(os.path.join(dir_path, "plots.pdf")) as pdf:
+        print(os.path.join(dir_path, "plots.pdf"))
+        for i, (images, target) in enumerate(data_loader):
+            images = images.to(device)
+            print('{} '.format(i), end='', flush=True)
+            if i not in perm:
+                print('skipped.')
+                continue
 
-        # === normalize first few images
-        normalized_input = images.clone()
-        for k in range(args.columns):
-            imagenet_utils.NORMALIZATION(normalized_input[k])
+            # === normalize first few images
+            normalized_input = images.clone()
+            for k in range(args.columns):
+                imagenet_utils.NORMALIZATION(normalized_input[k])
 
-        # === get mask and masked images
-        binary_mask, soft_mask = get_binarized_mask(normalized_input, model)
-        soft_masked_image = normalized_input * soft_mask
+            # === get mask and masked images
+            binary_mask, soft_mask = get_binarized_mask(normalized_input, model)
+            soft_masked_image = normalized_input * soft_mask
 
-        for j in range(soft_masked_image.size(0)):
-            imagenet_utils.DENORMALIZATION(soft_masked_image[j])
-        masked_in, masked_out = get_masked_images(images, binary_mask, 0.35)
-        inpainted = inpaint(binary_mask, masked_out)
+            for j in range(soft_masked_image.size(0)):
+                imagenet_utils.DENORMALIZATION(soft_masked_image[j])
+            masked_in, masked_out = get_masked_images(images, binary_mask, 0.35)
+            inpainted = inpaint(binary_mask, masked_out)
 
-        # === setup plot
-        fig, axes = plt.subplots(5, args.columns)
-        if args.columns == 4:
-            fig.subplots_adjust(bottom=-0.02, top=1.02, wspace=0.05, hspace=0.05)
-        if args.columns == 5:
-            fig.subplots_adjust(top=0.92, wspace=0.05, hspace=0.05)
-        if args.columns == 6:
-            fig.subplots_adjust(top=0.8, wspace=0.05, hspace=0.05)
-        if args.columns == 7:
-            fig.subplots_adjust(top=0.7, wspace=0.05, hspace=0.05)
+            # === setup plot
+            fig, axes = plt.subplots(5, args.columns)
+            if args.columns == 4:
+                fig.subplots_adjust(bottom=-0.02, top=1.02, wspace=0.05, hspace=0.05)
+            if args.columns == 5:
+                fig.subplots_adjust(top=0.92, wspace=0.05, hspace=0.05)
+            if args.columns == 6:
+                fig.subplots_adjust(top=0.8, wspace=0.05, hspace=0.05)
+            if args.columns == 7:
+                fig.subplots_adjust(top=0.7, wspace=0.05, hspace=0.05)
 
-        # === plot
-        for col in range(args.columns):
-            axes[0, col].imshow(permute_image(images[col]))
-            axes[1, col].imshow(permute_image(masked_in[col]))
-            axes[2, col].imshow(permute_image(masked_out[col]))
-            axes[3, col].imshow(permute_image(inpainted[col]))
-            axes[4, col].imshow(permute_image(soft_masked_image[col]))
+            # === plot
+            for col in range(args.columns):
+                axes[0, col].imshow(permute_image(images[col]))
+                axes[1, col].imshow(permute_image(masked_in[col]))
+                axes[2, col].imshow(permute_image(masked_out[col]))
+                axes[3, col].imshow(permute_image(inpainted[col]))
+                axes[4, col].imshow(permute_image(soft_masked_image[col]))
 
-        for ax in axes.flatten():
-            ax.set_xticks([])
-            ax.set_yticks([])
+            for ax in axes.flatten():
+                ax.set_xticks([])
+                ax.set_yticks([])
 
-        axes[0, 0].set_ylabel("Original", fontsize=4)
-        axes[1, 0].set_ylabel("Masked In", fontsize=4)
-        axes[2, 0].set_ylabel("Masked Out", fontsize=4)
-        axes[3, 0].set_ylabel("Bad Inpaint", fontsize=4)
-        axes[4, 0].set_ylabel("Soft Masked Out", fontsize=4)
+            axes[0, 0].set_ylabel("Original", fontsize=4)
+            axes[1, 0].set_ylabel("Masked In", fontsize=4)
+            axes[2, 0].set_ylabel("Masked Out", fontsize=4)
+            axes[3, 0].set_ylabel("Bad Inpaint", fontsize=4)
+            axes[4, 0].set_ylabel("Soft Masked Out", fontsize=4)
 
-        path = os.path.join(dir_path, str(i) + '.png')
-        plt.savefig(path, dpi=300, bbox_inches='tight')
-        plt.show()
-        plt.clf()
-        plt.gcf()
-        plt.close('all')
-        print('plotted to {}.'.format(path))
+            path = os.path.join(dir_path, str(i) + '.png')
+            plt.savefig(path, dpi=300, bbox_inches='tight')
+            pdf.savefig()
+            plt.show()
+            plt.clf()
+            plt.gcf()
+            plt.close('all')
+            print('plotted to {}.'.format(path))
 
 
 if __name__ == '__main__':
