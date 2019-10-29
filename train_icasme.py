@@ -144,7 +144,7 @@ def main(args: RunConfiguration):
 
     infiller_criterion = nn.MSELoss()
 
-    casme_runner = core.InfillerCASMERunner(
+    casme_runner = core.InfillerCASMERunnerOld(
         classifier=classifier,
         masker=masker,
         infiller=infiller,

@@ -82,9 +82,14 @@ class RunConfiguration(zconf.RunConfig):
     casms_path = zconf.attr(default='')
     log_path = zconf.attr(default='')
 
+    infiller_model = zconf.attr(default="cnn", type=str)
+    do_infill_for_mask_in = zconf.attr(default=0, type=int)
+    do_infill_for_mask_out = zconf.attr(default=0, type=int)
+
     def _post_init(self):
         randomhash = ''.join(str(time.time()).split('.'))
         self.name = self.name + "___" + randomhash
+        self.need_infiller = self.do_infill_for_mask_in or self.do_infill_for_mask_out
         set_args(self)
 
 
@@ -140,32 +145,64 @@ def main(args):
         device=device,
     )
 
-    casme_runner = core.CASMERunner(
-        classifier=classifier,
-        masker=masker,
-        classifier_optimizer=classifier_optimizer,
-        masker_optimizer=masker_optimizer,
-        classifier_criterion=nn.CrossEntropyLoss(),
-        mask_in_criterion=mask_in_criterion,
-        mask_out_criterion=mask_out_criterion,
-        fixed_classifier=args.fixed_classifier,
-        perc_of_training=args.perc_of_training,
-        prob_historic=args.prob_historic,
-        save_freq=args.save_freq,
-        zoo_size=args.f_size,
-        image_normalization_mode=None,
-        add_prob_layers=args.add_prob_layers,
-        prob_sample_low=args.prob_sample_low,
-        prob_sample_high=args.prob_sample_high,
-        mask_in_weight=args.mask_in_weight,
-        mask_out_weight=args.mask_out_weight,
-        device=device,
-        logger=zlog.ZBufferedLogger(
-            fol_path=args.log_path,
-            buffer_size_dict={"messages": 1},
-            default_buffer_size=1,
+    if args.need_infiller:
+        infiller = archs.get_infiller(args.infiller_model).to(device)
+        casme_runner = core.InfillerCASMERunner(
+            classifier=classifier,
+            masker=masker,
+            classifier_optimizer=classifier_optimizer,
+            masker_optimizer=masker_optimizer,
+            classifier_criterion=nn.CrossEntropyLoss(),
+            mask_in_criterion=mask_in_criterion,
+            mask_out_criterion=mask_out_criterion,
+            fixed_classifier=args.fixed_classifier,
+            perc_of_training=args.perc_of_training,
+            prob_historic=args.prob_historic,
+            save_freq=args.save_freq,
+            zoo_size=args.f_size,
+            image_normalization_mode=None,
+            add_prob_layers=args.add_prob_layers,
+            prob_sample_low=args.prob_sample_low,
+            prob_sample_high=args.prob_sample_high,
+            mask_in_weight=args.mask_in_weight,
+            mask_out_weight=args.mask_out_weight,
+            device=device,
+            logger=zlog.ZBufferedLogger(
+                fol_path=args.log_path,
+                buffer_size_dict={"messages": 1},
+                default_buffer_size=1,
+            ),
+            infiller=infiller,
+            do_infill_for_mask_in=args.do_infill_for_mask_in,
+            do_infill_for_mask_out=args.do_infill_for_mask_out,
         )
-    )
+    else:
+        casme_runner = core.CASMERunner(
+            classifier=classifier,
+            masker=masker,
+            classifier_optimizer=classifier_optimizer,
+            masker_optimizer=masker_optimizer,
+            classifier_criterion=nn.CrossEntropyLoss(),
+            mask_in_criterion=mask_in_criterion,
+            mask_out_criterion=mask_out_criterion,
+            fixed_classifier=args.fixed_classifier,
+            perc_of_training=args.perc_of_training,
+            prob_historic=args.prob_historic,
+            save_freq=args.save_freq,
+            zoo_size=args.f_size,
+            image_normalization_mode=None,
+            add_prob_layers=args.add_prob_layers,
+            prob_sample_low=args.prob_sample_low,
+            prob_sample_high=args.prob_sample_high,
+            mask_in_weight=args.mask_in_weight,
+            mask_out_weight=args.mask_out_weight,
+            device=device,
+            logger=zlog.ZBufferedLogger(
+                fol_path=args.log_path,
+                buffer_size_dict={"messages": 1},
+                default_buffer_size=1,
+            )
+        )
 
     # training loop
     for epoch in range(args.epochs):

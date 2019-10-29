@@ -1,15 +1,17 @@
 import copy
-import datetime as dt
 import random
 import torch
 
-from . import log_container
-from . import criterion
-from .casme_utils import per_image_normalization
-from .train_utils import accuracy
-from .stats import mask_to_stats
+from casme import criterion
+from casme.casme_utils import per_image_normalization
+from casme.train_utils import accuracy
+from casme.stats import mask_to_stats
 
 import zproto.zlogv1 as zlog
+
+
+def ignore_superclass_signature(f):
+    return f
 
 
 class LogData:
@@ -83,7 +85,7 @@ class CASMERunner(BaseRunner):
         assert self.do_mask_in or self.do_mask_out
 
     def train_or_eval(self, data_loader, is_train=False, epoch=None):
-        self.models_mode(is_train)
+        self.set_models_mode(is_train)
         for i, (x, y) in enumerate(data_loader):
             if is_train and i > len(data_loader) * self.perc_of_training:
                 break
@@ -132,8 +134,10 @@ class CASMERunner(BaseRunner):
                 x=x, y=y, y_hat=y_hat, mask=mask, log_data=log_data, use_p=use_p,
             )
             classifier_loss_from_masked_x, masker_total_loss = self.aggregate_losses(
-                classifier_loss_from_masked_in_x=classifier_loss_from_masked_in_x, mask_in_loss=mask_in_loss,
-                classifier_loss_from_masked_out_x=classifier_loss_from_masked_out_x, mask_out_loss=mask_out_loss,
+                classifier_loss_from_masked_in_x=classifier_loss_from_masked_in_x,
+                mask_in_loss=mask_in_loss,
+                classifier_loss_from_masked_out_x=classifier_loss_from_masked_out_x,
+                mask_out_loss=mask_out_loss,
                 log_data=log_data,
             )
 
@@ -229,9 +233,14 @@ class CASMERunner(BaseRunner):
             self.classifier_optimizer_step(classifier_loss=classifier_loss)
             self.maybe_save_classifier_to_history(i=i)
 
+    @classmethod
+    def mask_in_x(cls, x, mask):
+        masked_in_x = criterion.MaskFunc.mask_in(x=x, mask=mask)
+        return masked_in_x
+
     def compute_loss_for_mask_in(self, x, y, y_hat, mask, log_data, use_p=None):
         if self.do_mask_in:
-            masked_in_x = criterion.MaskFunc.mask_in(x=x, mask=mask)
+            masked_in_x = self.mask_in_x(x=x, mask=mask)
             y_hat_from_masked_in_x = self.classifier(masked_in_x)
             classifier_loss_from_masked_in_x = self.classifier_criterion(y_hat_from_masked_in_x, y)
             mask_in_loss, mask_in_loss_metadata = self.mask_in_criterion(
@@ -246,9 +255,14 @@ class CASMERunner(BaseRunner):
             classifier_loss_from_masked_in_x = mask_in_loss = 0
         return classifier_loss_from_masked_in_x, mask_in_loss
 
+    @classmethod
+    def mask_out_x(cls, x, mask):
+        masked_out_x = criterion.MaskFunc.mask_out(x=x, mask=mask)
+        return masked_out_x
+
     def compute_loss_for_mask_out(self, x, y, y_hat, mask, log_data, use_p=None):
         if self.do_mask_out:
-            masked_out_x = criterion.MaskFunc.mask_out(x=x, mask=mask)
+            masked_out_x = self.mask_out_x(x=x, mask=mask)
             y_hat_from_masked_out_x = self.classifier(masked_out_x)
             classifier_loss_from_masked_out_x = self.classifier_criterion(y_hat_from_masked_out_x, y)
             mask_out_loss, mask_out_loss_metadata = self.mask_out_criterion(
@@ -299,222 +313,56 @@ class CASMERunner(BaseRunner):
         return [l.detach() for l in layers]
 
 
-class InfillerCASMERunner(BaseRunner):
+class InfillerCASMERunner(CASMERunner):
+
     def __init__(self,
-                 classifier, masker, infiller,
-                 classifier_optimizer, masker_optimizer, infiller_optimizer,
-                 classifier_criterion, masker_criterion, infiller_criterion,
-                 train_infiller, shuffle_infiller_masks,
-                 fixed_classifier, perc_of_training, prob_historic, save_freq, zoo_size,
-                 image_normalization_mode,
-                 mask_func,
-                 add_prob_layers, prob_sample_low, prob_sample_high,
-                 print_freq,
-                 device,
-                 logger=None,
-                 ):
-        self.classifier = classifier
-        self.classifier_for_mask = None
-        self.masker = masker
+                 infiller,
+                 # infiller_optimizer,
+                 # infiller_criterion,
+                 # train_infiller,
+                 do_infill_for_mask_in, do_infill_for_mask_out,
+                 **kwargs):
         self.infiller = infiller
-        self.classifier_optimizer = classifier_optimizer
-        self.masker_optimizer = masker_optimizer
-        self.infiller_optimizer = infiller_optimizer
-        self.classifier_criterion = classifier_criterion.to(device)
-        self.masker_criterion = masker_criterion.to(device)
-        self.infiller_criterion = infiller_criterion.to(device)
-        self.train_infiller = train_infiller
-        self.shuffle_infiller_masks = shuffle_infiller_masks
+        # self.infiller_optimizer = infiller_optimizer
+        # self.infiller_criterion = infiller_criterion
+        # self.train_infiller = train_infiller
+        self.do_infill_for_mask_in = do_infill_for_mask_in
+        self.do_infill_for_mask_out = do_infill_for_mask_out
+        super().__init__(**kwargs)
 
-        self.fixed_classifier = fixed_classifier
-        self.perc_of_training = perc_of_training
-        self.prob_historic = prob_historic
-        self.save_freq = save_freq
-        self.zoo_size = zoo_size
-        self.image_normalization_mode = image_normalization_mode
+    def mask_in_x(self, x, mask):
+        masked_in_x = super().mask_in_x(x=x, mask=mask)
 
-        self.add_prob_layers = add_prob_layers
-        self.prob_sample_low = prob_sample_low
-        self.prob_sample_high = prob_sample_high
-        self.print_freq = print_freq
-        self.device = device
-        self.logger = logger
-        self.mask_func = mask_func
-
-        self.classifier_zoo = {}
-
-    def train_or_eval(self, data_loader, is_train=False, epoch=None):
-        log_containers = log_container.ICASMELogContainers()
-        self.set_models_mode(is_train=is_train)
-        for i, (x, y) in enumerate(data_loader):
-            if is_train and i > len(data_loader) * self.perc_of_training:
-                break
-            x, y = x.to(self.device), y.to(self.device)
-            x = per_image_normalization(x, mode=self.image_normalization_mode)
-            log_containers.data_time.update()
-            self.train_or_eval_batch(
-                x, y, i,
-                log_containers=log_containers, is_train=is_train,
+        if self.do_infill_for_mask_out:
+            generated = self.infiller(
+                masked_x=masked_in_x.detach(), mask=mask.detach(), x=x,
+                mask_mode=criterion.MaskFunc.MASK_IN,
             )
-            # print log
-            if i % self.print_freq == 0:
-                if is_train:
-                    self.logger.log('Epoch: [{0}][{1}/{2}/{3}]\t'.format(
-                        epoch, i, int(len(data_loader)*self.perc_of_training), len(data_loader)), no_enter=True)
-                else:
-                    self.logger.log('Test: [{0}][{1}/{2}]\t'.format(epoch, i, len(data_loader)), no_enter=True)
-                self.logger.log('Time {lc.batch_time.avg:.3f} ({lc.batch_time.val:.3f})\t'
-                                'Data {lc.data_time.avg:.3f} ({lc.data_time.val:.3f})\n'
-                                'Loss(C) {lc.losses.avg:.4f} ({lc.losses.val:.4f})\t'
-                                'Prec@1(C) {lc.acc.avg:.3f} ({lc.acc.val:.3f})\n'
-                                'Loss(M) {lc.losses_m.avg:.4f} ({lc.losses_m.val:.4f})\t'
-                                'Prec@1(M) {lc.acc_m.avg:.3f} ({lc.acc_m.val:.3f})\n'
-                                'MTLoss(M) {lc.masker_total_loss.avg:.4f} ({lc.masker_total_loss.val:.4f})\t'
-                                'MLoss(M) {lc.masker_loss.avg:.4f} ({lc.masker_loss.val:.4f})\t'
-                                'MReg(M) {lc.masker_reg.avg:.4f} ({lc.masker_reg.val:.4f})\n'
-                                'CoC {lc.correct_on_clean.avg:.3f} ({lc.correct_on_clean.val:.3f})\t'
-                                'MoM {lc.mistaken_on_masked.avg:.3f} ({lc.mistaken_on_masked.val:.3f})\t'
-                                'NC {lc.nontrivially_confused.avg:.3f} ({lc.nontrivially_confused.val:.3f})\n'
-                                'Inf {lc.infiller_loss.avg:.3f} ({lc.infiller_loss.val:.3f})\n'
-                                ''.format(lc=log_containers))
-                log_containers.statistics.print_out()
-                self.logger.log('{:%Y-%m-%d %H:%M:%S}'.format(dt.datetime.now()))
-                self.logger.log()
-
-        if not is_train:
-            self.logger.log(' * Prec@1 {lc.acc.avg:.3f} Prec@1(M) {lc.acc_m.avg:.3f} '.format(lc=log_containers))
-            log_containers.statistics.print_out()
-
-        return {
-            'acc': str(log_containers.acc.avg),
-            'acc_m': str(log_containers.acc_m.avg),
-            **log_containers.statistics.get_dictionary()
-        }
-
-    def train_or_eval_batch(self, x, y, i, log_containers, is_train=False):
-
-        if self.add_prob_layers:
-            use_p = torch.Tensor(x.shape[0])\
-                .uniform_(self.prob_sample_low, self.prob_sample_high)\
-                .to(self.device)
+            return criterion.InfillFunc.infill_for_mask_in(
+                masked_x=masked_in_x, mask=mask.detach(),
+                infill_data=generated,
+            )
         else:
-            use_p = None
+            return masked_in_x
 
-        # compute classifier prediction on the original images and get inner layers
-        with torch.set_grad_enabled(is_train and (not self.fixed_classifier)):
-            y_hat, layers = self.classifier(x, return_intermediate=True)
-            classifier_loss = self.classifier_criterion(y_hat, y)
+    def mask_out_x(self, x, mask):
+        masked_out_x = super().mask_out_x(x=x, mask=mask)
 
-        # update metrics
-        log_containers.losses.update(classifier_loss.item(), x.size(0))
-        log_containers.acc.update(accuracy(y_hat.detach(), y, topk=(1,))[0].item(), x.size(0))
-
-        # update classifier - compute gradient and do SGD step for clean image, save classifier
-        if is_train and (not self.fixed_classifier):
-            self.classifier_optimizer.zero_grad()
-            classifier_loss.backward()
-            self.classifier_optimizer.step()
-
-            # save classifier (needed only if previous iterations are used i.e. args.hp > 0)
-            if self.prob_historic > 0 \
-                    and ((i % self.save_freq == -1 % self.save_freq) or len(self.classifier_zoo) < 1):
-                self.logger.log('Current iteration is saving, will be used in the future. ', no_enter=True)
-                if len(self.classifier_zoo) < self.zoo_size:
-                    index = len(self.classifier_zoo)
-                else:
-                    index = random.randint(0, len(self.classifier_zoo) - 1)
-                state_dict = self.classifier.state_dict()
-                self.classifier_zoo[index] = {}
-                for p in state_dict:
-                    self.classifier_zoo[index][p] = state_dict[p].cpu()
-                self.logger.log('There are {0} iterations stored.'.format(len(self.classifier_zoo)))
-
-        # detach inner layers to make them be features for decoder
-        layers = [l.detach() for l in layers]
-
-        with torch.set_grad_enabled(is_train):
-            # compute mask and masked input
-            mask = self.masker(layers, use_p=use_p)
-            masked_x = self.mask_func(x=x, mask=mask)
-
-            # Compute infill (generate using detached mask, infill using real mask)
-            with torch.set_grad_enabled(self.train_infiller and not self.shuffle_infiller_masks):
-                generated = self.infiller(masked_x.detach(), mask.detach())
-
-            infilled = criterion.default_infill_func(masked_x, mask, generated)
-
-            # update statistics
-            log_containers.statistics.update(mask)
-
-            # randomly select classifier to be evaluated on masked image and compute output
-            if (not is_train) or self.fixed_classifier or (random.random() > self.prob_historic):
-                y_hat_from_masked_x = self.classifier(infilled)
-                update_classifier = not self.fixed_classifier
-            else:
-                if self.classifier_for_mask is None:
-                    self.classifier_for_mask = copy.deepcopy(self.classifier)
-                index = random.randint(0, len(self.classifier_zoo) - 1)
-                self.classifier_for_mask.load_state_dict(self.classifier_zoo[index])
-                self.classifier_for_mask.eval()
-                y_hat_from_masked_x = self.classifier_for_mask(infilled)
-                update_classifier = False
-
-            classifier_loss_from_masked_x = self.classifier_criterion(y_hat_from_masked_x, y)
-
-            # update metrics
-            log_containers.losses_m.update(classifier_loss_from_masked_x.item(), x.size(0))
-            log_containers.acc_m.update(accuracy(
-                y_hat_from_masked_x.detach(), y, topk=(1,))[0].item(), x.size(0))
-
-        if is_train:
-            # update classifier - compute gradient, do SGD step for masked image
-            if update_classifier:
-                self.classifier_optimizer.zero_grad()
-                classifier_loss_from_masked_x.backward(retain_graph=True)
-                self.classifier_optimizer.step()
-
-            self.masker_optimizer.zero_grad()
-            masker_total_loss, masker_loss_metadata = self.masker_criterion(
-                mask=mask, y_hat=y_hat, y_hat_from_masked_x=y_hat_from_masked_x, y=y,
-                classifier_loss_from_masked_x=classifier_loss_from_masked_x, use_p=use_p,
+        if self.do_infill_for_mask_out:
+            generated = self.infiller(
+                masked_x=masked_out_x.detach(), mask=mask.detach(), x=x,
+                mask_mode=criterion.MaskFunc.MASK_OUT,
             )
-            masker_total_loss.backward(retain_graph=True)
-            torch.nn.utils.clip_grad_norm_(self.masker.parameters(), 10)
-            self.masker_optimizer.step()
-
-            self.infiller_optimizer.zero_grad()
-            with torch.set_grad_enabled(self.train_infiller):
-                if self.shuffle_infiller_masks:
-                    shuf_mask = torch.flip(mask.detach(), dims=[0])
-                    shuf_masked_x = self.mask_func(x=x, mask=shuf_mask)
-                    generated = self.infiller(shuf_masked_x.detach(), shuf_mask.detach())
-                    infilled = criterion.default_infill_func(shuf_masked_x, shuf_mask, generated)
-                infiller_loss = self.infiller_criterion(infilled, x)
-
-            if self.train_infiller:
-                infiller_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.infiller_criterion.parameters(), 10)
-                self.infiller_optimizer.step()
-
-            # update casme - compute gradient, do SGD step
-            log_containers.masker_total_loss.update(masker_total_loss.item(), x.size(0))
-            log_containers.masker_loss.update(masker_loss_metadata["loss"].item(), x.size(0))
-            log_containers.masker_reg.update(masker_loss_metadata["regularization"].item(), x.size(0))
-            log_containers.correct_on_clean.update(masker_loss_metadata["correct_on_clean"].item(), x.size(0))
-            log_containers.mistaken_on_masked.update(masker_loss_metadata["mistaken_on_masked"].item(), x.size(0))
-            log_containers.nontrivially_confused.update(masker_loss_metadata["nontrivially_confused"].item(), x.size(0))
-            log_containers.infiller_loss.update(infiller_loss.item(), x.size(0))
-
-        # measure elapsed time
-        log_containers.batch_time.update()
+            return criterion.InfillFunc.infill_for_mask_out(
+                masked_x=masked_out_x, mask=mask.detach(),
+                infill_data=generated,
+            )
+        else:
+            return masked_out_x
 
     def set_models_mode(self, is_train):
-        if is_train:
-            self.masker.train()
-            if self.fixed_classifier:
-                self.classifier.eval()
-            else:
-                self.classifier.train()
+        super().set_models_mode(is_train)
+        if is_train and self.train_infiller:
+            self.infiller.train()
         else:
-            self.masker.eval()
-            self.classifier.eval()
+            self.infiller.eval()

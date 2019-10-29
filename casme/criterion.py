@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from casme.ext.pytorch_inpainting_with_partial_conv import gram_matrix, total_variation_loss
-from casme.ext.torchray import imsmooth
 
 
 from pyutils.datastructures import combine_dicts
@@ -15,25 +14,25 @@ class MaskFunc:
 
     MASK_IN = "MASK_IN"
     MASK_OUT = "MASK_OUT"
-    MASK_IN_AND_BLUR = "MASK_IN_AND_BLUR"
-    MASK_OUT_AND_BLUR = "MASK_OUT_AND_BLUR"
-    MODES = [MASK_IN, MASK_OUT, MASK_IN_AND_BLUR, MASK_OUT_AND_BLUR]
+    MODES = [MASK_IN, MASK_OUT]
 
     def __init__(self, mask_mode):
         assert mask_mode in self.MODES
         self.mask_mode = mask_mode
 
     def apply_mask(self, x, mask):
-        if self.mask_mode == self.MASK_IN:
-            return self.mask_in(x, mask)
-        elif self.mask_mode == self.MASK_OUT:
-            return self.mask_out(x, mask)
-        if self.mask_mode == self.MASK_IN_AND_BLUR:
-            return self.mask_in_and_blur(x, mask)
-        elif self.mask_mode == self.MASK_OUT_AND_BLUR:
-            return self.mask_out_and_blur(x, mask)
+        return self.static_apply(
+            x=x, mask=mask, mask_mode=self.mask_mode,
+        )
+
+    @classmethod
+    def static_apply(cls, x, mask, mask_mode):
+        if mask_mode == cls.MASK_IN:
+            return cls.mask_in(x, mask)
+        elif mask_mode == cls.MASK_OUT:
+            return cls.mask_out(x, mask)
         else:
-            raise KeyError(self.mask_mode)
+            raise KeyError(mask_mode)
 
     @staticmethod
     def mask_out(x, mask):
@@ -43,13 +42,22 @@ class MaskFunc:
     def mask_in(x, mask):
         return x * mask
 
-    @staticmethod
-    def mask_out_and_blur(x, mask, sigma=20):
-        return x * (1 - mask) + imsmooth(x, sigma) * mask
+
+class InfillFunc:
 
     @staticmethod
-    def mask_in_and_blur(x, mask, sigma=20):
-        return x * mask + imsmooth(x, sigma) * (1-mask)
+    def infill_for_mask_out(masked_x, mask, infill_data):
+        # re-masking
+        # return masked_x * (1 - mask) + infilled_x * mask
+        # without re-masking
+        return masked_x + infill_data * mask
+
+    @staticmethod
+    def infill_for_mask_in(masked_x, mask, infill_data):
+        # re-masking
+        # return masked_x * mask + infilled_x * (1 - mask)
+        # without re-masking
+        return masked_x + infill_data * (1 - mask)
 
 
 def apply_uniform_random_value_mask_func(x, mask):

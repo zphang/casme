@@ -6,7 +6,9 @@ import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 import torch.nn.functional as F
 
-from .ext.pytorch_inpainting_with_partial_conv import PConvUNet, PCBActiv
+from casme.ext.pytorch_inpainting_with_partial_conv import PConvUNet, PCBActiv
+from casme.ext.torchray import imsmooth
+import casme.criterion as criterion
 
 
 class Upsample(nn.Module):
@@ -443,7 +445,7 @@ class InfillerCNN(nn.Module):
         self.upsample = Upsample(scale_factor=2, mode='bilinear', align_corners=False)
         self.init_weights()
 
-    def forward(self, masked_x, mask):
+    def forward(self, masked_x, mask, x, mask_mode):
         h = torch.cat([masked_x, mask], dim=1)
         down_h_ls = []
         for i in range(self.n_dims):
@@ -485,13 +487,13 @@ class CAInfillerWrapper(nn.Module):
             "/gpfs/data/geraslab/zphang/working/190504_infill/pretrained_models/torch_model_generator.p"
         ))
 
-    def forward(self, masked_x, mask):
+    def forward(self, masked_x, mask, x, mask_mode):
         # masked_x: normalize from [0, 1]
         # mask: 1 = selected region
 
         # generator input: [0, 255] / 127.5 - 1
         input_x = self.iproc.denorm_tensor(masked_x) * 255/127.5 - 1
-        input_x = input_x * (1 - mask)
+        input_x = criterion.MaskFunc.static_apply(x=input_x, mask=mask, mask_mode=mask_mode)
         _, raw_result, _ = self.generator(
             x=input_x,
             mask=mask,
@@ -512,7 +514,7 @@ class DFNInfillerWrapper(nn.Module):
         ))
         self.model.eval()
 
-    def forward(self, masked_x, mask):
+    def forward(self, masked_x, mask, x, mask_mode):
         # masked_x: normalize from [0, 1]
         # mask: 1 = selected region
         # Resize
@@ -522,10 +524,15 @@ class DFNInfillerWrapper(nn.Module):
         # desired input: [0, 1]
         # desired mask: [0, 1], 0 = masked out
         input_x = self.iproc.denorm_tensor(masked_x)
-        mask_out = 1 - mask
-        imgs_miss = input_x * mask_out
+        imgs_miss = criterion.MaskFunc.static_apply(x=input_x, mask=mask, mask_mode=mask_mode)
 
-        result, alpha, raw = self.model(imgs_miss, mask_out)
+        if mask_mode == criterion.MaskFunc.MASK_OUT:
+            used_mask = 1 - mask
+        elif mask_mode == criterion.MaskFunc.MASK_IN:
+            used_mask = mask
+        else:
+            raise KeyError(mask_mode)
+        result, alpha, raw = self.model(imgs_miss, used_mask)
         result, alpha, raw = result[0], alpha[0], raw[0]
         result = imgs_miss + result * mask
 
@@ -539,8 +546,18 @@ class DummyInfiller(nn.Module):
         super().__init__()
         self.dummy = nn.Linear(1, 1)
 
-    def forward(self, masked_x, mask):
+    def forward(self, masked_x, mask, x, mask_mode):
         return masked_x * 0
+
+
+class BlurInfiller(nn.Module):
+    def __init__(self, sigma):
+        super().__init__()
+        self.sigma = sigma
+        self.dummy = nn.Linear(1, 1)
+
+    def forward(self, masked_x, mask, x, mask_mode):
+        return imsmooth(x, sigma=self.sigma)
 
 
 class ImageProc(nn.Module):
@@ -590,6 +607,8 @@ def get_infiller(infiller_model):
         ))
     elif infiller_model == "dummy":
         return DummyInfiller()
+    elif infiller_model == "blur":
+        return BlurInfiller(sigma=20)
     else:
         raise KeyError(infiller_model)
 
@@ -602,6 +621,8 @@ def should_train_infiller(infiller_model):
     elif infiller_model == "dfn_infiller":
         return False
     elif infiller_model == "dummy":
+        return False
+    elif infiller_model == "blur":
         return False
     else:
         raise KeyError(infiller_model)
