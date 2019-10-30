@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import random
 
 import torch
 import torchvision.transforms as transforms
@@ -9,9 +10,12 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from casme.model_basics import casme_load_model
 from casme.utils.torch_utils import ImagePathDataset
-from casme.casme_utils import get_binarized_mask, get_masked_images, inpaint, permute_image
+from casme.casme_utils import get_binarized_mask, get_masked_images, permute_image
 import casme.tasks.imagenet.utils as imagenet_utils
+import casme.core as core
+import casme.archs as archs
 
+import pyutils.io as io
 import zconf
 
 
@@ -21,7 +25,6 @@ class RunConfiguration(zconf.RunConfig):
     casm_path = zconf.attr(help='model_checkpoint')
     workers = zconf.attr(default=4, type=int, help='number of data loading workers (default: 4)')
     resize = zconf.attr(default=256, type=int, help='resize parameter (default: 256)')
-    batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 256)')
     columns = zconf.attr(default=7, type=int,
                          help='number of consecutive images plotted together,'
                               ' one per column (default: 7, recommended 4 to 7)')
@@ -30,45 +33,62 @@ class RunConfiguration(zconf.RunConfig):
     seed = zconf.attr(default=931001, type=int, help='random seed that is used to select images')
     plots_path = zconf.attr(default='', help='directory for plots')
 
-    def _post_init(self):
-        if self.columns > self.batch_size:
-            self.columns = self.batch_size
+
+def get_infiller(model, device):
+    if model["checkpoint"]["args"].get("infiller_model", None):
+        return archs.get_infiller(
+            model["checkpoint"]["args"]["infiller_model"]
+        ).to(device)
+    else:
+        return None
+
+
+def get_infilled(infiller, masked_in_x, masked_out_x, binary_mask, x):
+    if infiller is not None:
+        infilled_masked_in = core.infill_masked_in(
+            infiller=infiller, masked_in_x=masked_in_x,
+            mask=binary_mask, x=x,
+        )
+        infilled_masked_out = core.infill_masked_out(
+            infiller=infiller, masked_out_x=masked_out_x,
+            mask=binary_mask, x=x,
+        )
+        return infilled_masked_in, infilled_masked_out
+    else:
+        return masked_in_x, masked_out_x
 
 
 def main(args: RunConfiguration):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    data_config = io.read_json(args.val_json)
+    data_config["samples"] = random.choices(
+        data_config["samples"],
+        k=args.columns * args.plots,
+    )
 
     # data loader without normalization
     data_loader = torch.utils.data.DataLoader(
-        ImagePathDataset.from_path(
-            config_path=args.val_json,
+        ImagePathDataset(
+            config=data_config,
             transform=transforms.Compose([
                 transforms.Resize(args.resize),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
             ])
         ),
-        batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=False,
+        batch_size=args.columns, shuffle=False, num_workers=args.workers, pin_memory=False,
     )
 
     model = casme_load_model(args.casm_path)
-
-    perm = np.random.RandomState(seed=args.seed).permutation(len(data_loader))
-    if args.plots > 0:
-        perm = perm[:args.plots]
-        print('List of sampled batches:', sorted(perm))
+    infiller = get_infiller(model, device)
+    torch.set_grad_enabled(False)
 
     dir_path = args.plots_path
     os.makedirs(dir_path, exist_ok=True)
 
     with PdfPages(os.path.join(dir_path, "plots.pdf")) as pdf:
-        print(os.path.join(dir_path, "plots.pdf"))
         for i, (images, target) in enumerate(data_loader):
             images = images.to(device)
-            print('{} '.format(i), end='', flush=True)
-            if i not in perm:
-                print('skipped.')
-                continue
 
             # === normalize first few images
             normalized_input = images.clone()
@@ -81,11 +101,14 @@ def main(args: RunConfiguration):
 
             for j in range(soft_masked_image.size(0)):
                 imagenet_utils.DENORMALIZATION(soft_masked_image[j])
-            masked_in, masked_out = get_masked_images(images, binary_mask, 0.35)
-            inpainted = inpaint(binary_mask, masked_out)
+            masked_in_x, masked_out_x = get_masked_images(images, binary_mask, 0.0)
+            infilled_masked_in, infilled_masked_out = get_infilled(
+                infiller=infiller, masked_in_x=masked_in_x, masked_out_x=masked_out_x,
+                binary_mask=binary_mask, x=normalized_input,
+            )
 
             # === setup plot
-            fig, axes = plt.subplots(5, args.columns)
+            fig, axes = plt.subplots(6, args.columns, figsize=(10, 10))
             if args.columns == 4:
                 fig.subplots_adjust(bottom=-0.02, top=1.02, wspace=0.05, hspace=0.05)
             if args.columns == 5:
@@ -98,20 +121,22 @@ def main(args: RunConfiguration):
             # === plot
             for col in range(args.columns):
                 axes[0, col].imshow(permute_image(images[col]))
-                axes[1, col].imshow(permute_image(masked_in[col]))
-                axes[2, col].imshow(permute_image(masked_out[col]))
-                axes[3, col].imshow(permute_image(inpainted[col]))
-                axes[4, col].imshow(permute_image(soft_masked_image[col]))
+                axes[1, col].imshow(permute_image(masked_in_x[col]))
+                axes[2, col].imshow(permute_image(masked_out_x[col]))
+                axes[3, col].imshow(permute_image(infilled_masked_in[col]))
+                axes[4, col].imshow(permute_image(infilled_masked_out[col]))
+                axes[5, col].imshow(permute_image(soft_masked_image[col]))
 
             for ax in axes.flatten():
                 ax.set_xticks([])
                 ax.set_yticks([])
 
-            axes[0, 0].set_ylabel("Original", fontsize=4)
-            axes[1, 0].set_ylabel("Masked In", fontsize=4)
-            axes[2, 0].set_ylabel("Masked Out", fontsize=4)
-            axes[3, 0].set_ylabel("Bad Inpaint", fontsize=4)
-            axes[4, 0].set_ylabel("Soft Masked Out", fontsize=4)
+            axes[0, 0].set_ylabel("Original", fontsize=6)
+            axes[1, 0].set_ylabel("Masked In", fontsize=6)
+            axes[2, 0].set_ylabel("Masked Out", fontsize=6)
+            axes[3, 0].set_ylabel("Masked In+Infill", fontsize=6)
+            axes[4, 0].set_ylabel("Masked Out+Infill", fontsize=6)
+            axes[5, 0].set_ylabel("Soft Masked Out", fontsize=6)
 
             path = os.path.join(dir_path, str(i) + '.png')
             plt.savefig(path, dpi=300, bbox_inches='tight')

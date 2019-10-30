@@ -334,13 +334,10 @@ class InfillerCASMERunner(CASMERunner):
         masked_in_x = super().mask_in_x(x=x, mask=mask)
 
         if self.do_infill_for_mask_out:
-            generated = self.infiller(
-                masked_x=masked_in_x.detach(), mask=mask.detach(), x=x,
-                mask_mode=criterion.MaskFunc.MASK_IN,
-            )
-            return criterion.InfillFunc.infill_for_mask_in(
-                masked_x=masked_in_x, mask=mask.detach(),
-                infill_data=generated,
+            return infill_masked_in(
+                infiller=self.infiller,
+                masked_in_x=masked_in_x,
+                mask=mask, x=x,
             )
         else:
             return masked_in_x
@@ -349,13 +346,10 @@ class InfillerCASMERunner(CASMERunner):
         masked_out_x = super().mask_out_x(x=x, mask=mask)
 
         if self.do_infill_for_mask_out:
-            generated = self.infiller(
-                masked_x=masked_out_x.detach(), mask=mask.detach(), x=x,
-                mask_mode=criterion.MaskFunc.MASK_OUT,
-            )
-            return criterion.InfillFunc.infill_for_mask_out(
-                masked_x=masked_out_x, mask=mask.detach(),
-                infill_data=generated,
+            return infill_masked_out(
+                infiller=self.infiller,
+                masked_out_x=masked_out_x,
+                mask=mask, x=x,
             )
         else:
             return masked_out_x
@@ -366,3 +360,25 @@ class InfillerCASMERunner(CASMERunner):
             self.infiller.train()
         else:
             self.infiller.eval()
+
+
+def infill_masked_in(infiller, masked_in_x, mask, x):
+    generated = infiller(
+        masked_x=masked_in_x.detach(), mask=mask.detach(), x=x,
+        mask_mode=criterion.MaskFunc.MASK_IN,
+    )
+    return criterion.InfillFunc.infill_for_mask_in(
+        masked_x=masked_in_x, mask=mask.detach(),
+        infill_data=generated,
+    )
+
+
+def infill_masked_out(infiller, masked_out_x, mask, x):
+    generated = infiller(
+        masked_x=masked_out_x.detach(), mask=mask.detach(), x=x,
+        mask_mode=criterion.MaskFunc.MASK_OUT,
+    )
+    return criterion.InfillFunc.infill_for_mask_out(
+        masked_x=masked_out_x, mask=mask.detach(),
+        infill_data=generated,
+    )

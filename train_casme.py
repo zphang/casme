@@ -82,7 +82,7 @@ class RunConfiguration(zconf.RunConfig):
     casms_path = zconf.attr(default='')
     log_path = zconf.attr(default='')
 
-    infiller_model = zconf.attr(default="cnn", type=str)
+    infiller_model = zconf.attr(default=None, type=str)
     do_infill_for_mask_in = zconf.attr(default=0, type=int)
     do_infill_for_mask_out = zconf.attr(default=0, type=int)
 
@@ -237,7 +237,7 @@ def main(args):
             'state_dict_masker': masker.state_dict(),
             'optimizer_classifier': classifier_optimizer.state_dict(),
             'optimizer_masker': masker_optimizer.state_dict(),
-            'args': args,
+            'args': args.to_dict(),
         }, args)
 
 
