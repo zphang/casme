@@ -319,13 +319,13 @@ class InfillerCASMERunner(CASMERunner):
                  infiller,
                  # infiller_optimizer,
                  # infiller_criterion,
-                 # train_infiller,
+                 train_infiller,
                  do_infill_for_mask_in, do_infill_for_mask_out,
                  **kwargs):
         self.infiller = infiller
         # self.infiller_optimizer = infiller_optimizer
         # self.infiller_criterion = infiller_criterion
-        # self.train_infiller = train_infiller
+        self.train_infiller = train_infiller
         self.do_infill_for_mask_in = do_infill_for_mask_in
         self.do_infill_for_mask_out = do_infill_for_mask_out
         super().__init__(**kwargs)

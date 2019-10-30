@@ -47,7 +47,7 @@ def casme_load_model(casm_path):
     masker.eval().to(device)
     print("=> Model loaded.")
 
-    return {'classifier': classifier, 'masker': masker, 'name': name}
+    return {'classifier': classifier, 'masker': masker, 'name': name, 'checkpoint': checkpoint}
 
 
 def icasme_load_model(casm_path):
@@ -122,16 +122,22 @@ def get_infilled(x, mask, infiller):
 
 def binarize_mask(mask):
     with torch.no_grad():
-        avg = mask.view(mask.size(0), -1).mean(dim=1)
-        flat_mask = mask.cpu().view(mask.size(0), -1)
+        """
+        batch_size = mask.size(0)
+        flat_mask = mask.cpu().view(batch_size, -1)
+        num_flat_pixels = flat_mask.shape[-1]
+        avg = mask.view(batch_size, -1).mean(dim=1)
         binarized_mask = torch.zeros_like(flat_mask)
-        for i in range(mask.size(0)):
-            kth = 1 + int((flat_mask[i].size(0) - 1) * (1 - avg[i].item()) + 0.5)
+        for i in range(batch_size):
+            kth = 1 + int((num_flat_pixels - 1) * (1 - avg[i].item()) + 0.5)
             th, _ = torch.kthvalue(flat_mask[i], kth)
             th.clamp_(1e-6, 1 - 1e-6)
             binarized_mask[i] = flat_mask[i].gt(th).float()
         binarized_mask = binarized_mask.view(mask.size())
-
+        """
+        batch_size = mask.size(0)
+        avg = mask.view(batch_size, -1).mean(dim=1)
+        binarized_mask = mask.gt(avg.view(batch_size, 1, 1)).float()
         return binarized_mask.to(device)
 
 

@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 from casme.model_basics import casme_load_model
-from casme.utils.torch_utils import ImageJsonDataset
+from casme.utils.torch_utils import ImagePathDataset
 from casme.casme_utils import get_binarized_mask, get_masked_images, inpaint, permute_image
 import casme.tasks.imagenet.utils as imagenet_utils
 
@@ -40,9 +40,9 @@ def main(args: RunConfiguration):
 
     # data loader without normalization
     data_loader = torch.utils.data.DataLoader(
-        ImageJsonDataset(
-            args.val_json,
-            transforms.Compose([
+        ImagePathDataset.from_path(
+            config_path=args.val_json,
+            transform=transforms.Compose([
                 transforms.Resize(args.resize),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),

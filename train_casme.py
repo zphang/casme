@@ -173,6 +173,7 @@ def main(args):
                 default_buffer_size=1,
             ),
             infiller=infiller,
+            train_infiller=False,
             do_infill_for_mask_in=args.do_infill_for_mask_in,
             do_infill_for_mask_out=args.do_infill_for_mask_out,
         )

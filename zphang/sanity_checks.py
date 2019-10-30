@@ -14,7 +14,7 @@ import torch
 import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
-from casme.utils.torch_utils import ImageJsonDataset
+from casme.utils.torch_utils import ImagePathDataset
 import casme.tasks.imagenet.utils as imagenet_utils
 from casme.model_basics import casme_load_model, get_masks_and_check_predictions, device
 
@@ -40,9 +40,9 @@ class RunConfiguration(zconf.RunConfig):
 
 def main(args: RunConfiguration):
     data_loader = torch.utils.data.DataLoader(
-        ImageJsonDataset(
-            args.val_json,
-            transforms.Compose([
+        ImagePathDataset.from_path(
+            config_path=args.val_json,
+            transform=transforms.Compose([
                 transforms.Resize([224, 224] if args.break_ratio else 224),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),

@@ -4,11 +4,11 @@ from torchvision.datasets.folder import default_loader, IMG_EXTENSIONS
 import pyutils.io as io
 
 
-class ImageJsonDataset(VisionDataset):
-    def __init__(self, config_path, transform=None, target_transform=None,
+class ImagePathDataset(VisionDataset):
+    def __init__(self, config, transform=None, target_transform=None,
                  loader=default_loader, return_paths=False):
-        config = io.read_json(config_path)
         super().__init__(root=config["root"], transform=transform, target_transform=target_transform)
+        self.config = config
 
         self.loader = loader
         self.extensions = IMG_EXTENSIONS
@@ -42,3 +42,7 @@ class ImageJsonDataset(VisionDataset):
 
     def __len__(self):
         return len(self.samples)
+
+    @classmethod
+    def from_path(cls, config_path, *args, **kwargs):
+        return cls(config=io.read_json(config_path), *args, **kwargs)

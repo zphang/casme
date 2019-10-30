@@ -16,7 +16,7 @@ from casme.model_basics import (
 from casme.casme_utils import get_binarized_mask, get_masked_images, inpaint, permute_image
 from casme.tasks.imagenet.score_bboxes import compute_agg_loc_scores
 import casme.tasks.imagenet.utils as imagenet_utils
-from casme.utils.torch_utils import ImageJsonDataset
+from casme.utils.torch_utils import ImagePathDataset
 
 import zconf
 
@@ -50,9 +50,9 @@ def main(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     data_loader = torch.utils.data.DataLoader(
-        ImageJsonDataset(
-            args.val_json,
-            transforms.Compose([
+        ImagePathDataset.from_path(
+            config_path=args.val_json,
+            transform=transforms.Compose([
                 transforms.Resize(args.resize),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),

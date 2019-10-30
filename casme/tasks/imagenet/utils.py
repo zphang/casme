@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 import torchvision.transforms as transforms
-from casme.utils.torch_utils import ImageJsonDataset
+from casme.utils.torch_utils import ImagePathDataset
 
 NORMALIZATION_MEAN = np.array([0.485, 0.456, 0.406])
 NORMALIZATION_STD = np.array([0.229, 0.224, 0.225])
@@ -34,7 +34,7 @@ def tensor_to_image_arr(x):
 def get_data_loaders(train_json, val_json, batch_size, workers):
     if train_json:
         train_loader = torch.utils.data.DataLoader(
-            ImageJsonDataset(
+            ImagePathDataset.from_path(
                 config_path=train_json,
                 transform=transforms.Compose([
                     transforms.RandomResizedCrop(224),
@@ -50,7 +50,7 @@ def get_data_loaders(train_json, val_json, batch_size, workers):
 
     if val_json:
         val_loader = torch.utils.data.DataLoader(
-            ImageJsonDataset(
+            ImagePathDataset.from_path(
                 config_path=val_json,
                 transform=transforms.Compose([
                     transforms.Resize(256),
