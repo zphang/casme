@@ -16,6 +16,9 @@ DENORMALIZATION = transforms.Normalize(
     std=1 / NORMALIZATION_STD,
 )
 
+NORMALIZATION_MEAN_TENSOR = torch.tensor(NORMALIZATION_MEAN).view(1, 3, 1, 1).float()
+NORMALIZATION_STD_TENSOR = torch.tensor(NORMALIZATION_STD).view(1, 3, 1, 1).float()
+
 
 def normalize_arr(x):
     # Works for both B,H,W,C as well as H,W,C
@@ -27,8 +30,21 @@ def denormalize_arr(x):
     return (x * NORMALIZATION_STD) + NORMALIZATION_MEAN
 
 
+def normalize_tensor(x):
+    return (x - NORMALIZATION_MEAN_TENSOR.to(x.device)) / NORMALIZATION_STD_TENSOR.to(x.device)
+
+
+def denormalize_tensor(x):
+    return (x * NORMALIZATION_STD_TENSOR.to(x.device)) + NORMALIZATION_MEAN_TENSOR.to(x.device)
+
+
 def tensor_to_image_arr(x):
-    return x.permute([0, 2, 3, 1]).cpu().numpy()
+    if len(x.shape) == 4:
+        return x.permute([0, 2, 3, 1]).cpu().numpy()
+    elif len(x.shape) == 3:
+        return x.permute([1, 2, 0]).cpu().numpy()
+    else:
+        raise RuntimeError(x.shape)
 
 
 def get_data_loaders(train_json, val_json, batch_size, workers):

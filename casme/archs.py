@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from casme.ext.pytorch_inpainting_with_partial_conv import PConvUNet, PCBActiv
 from casme.ext.torchray import imsmooth
 import casme.criterion as criterion
+import casme.tasks.imagenet.utils as imagenet_utils
 
 
 class Upsample(nn.Module):
@@ -597,13 +598,13 @@ def get_infiller(infiller_model):
         )
     elif infiller_model == "ca_infiller":
         return CAInfillerWrapper(ImageProc(
-            mean=np.array([0.485, 0.456, 0.406]),
-            std=np.array([0.229, 0.224, 0.225]),
+            mean=imagenet_utils.NORMALIZATION_MEAN,
+            std=imagenet_utils.NORMALIZATION_STD,
         ))
     elif infiller_model == "dfn_infiller":
         return DFNInfillerWrapper(ImageProc(
-            mean=np.array([0.485, 0.456, 0.406]),
-            std=np.array([0.229, 0.224, 0.225]),
+            mean=imagenet_utils.NORMALIZATION_MEAN,
+            std=imagenet_utils.NORMALIZATION_STD,
         ))
     elif infiller_model == "dummy":
         return DummyInfiller()

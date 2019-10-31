@@ -1,4 +1,3 @@
-import numpy as np
 import os
 import random
 
@@ -43,6 +42,14 @@ def get_infiller(model, device):
         return None
 
 
+def write_html(img_path_ls, output_path):
+    s = "<html><body>"
+    for img_path in img_path_ls:
+        s += "<img src='{}' style='max-width: 100%'><hr>".format(img_path)
+    s += "</body></html>"
+    io.write_file(s, output_path)
+
+
 def get_infilled(infiller, masked_in_x, masked_out_x, binary_mask, x):
     if infiller is not None:
         infilled_masked_in = core.infill_masked_in(
@@ -74,6 +81,7 @@ def main(args: RunConfiguration):
                 transforms.Resize(args.resize),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
+                imagenet_utils.NORMALIZATION,
             ])
         ),
         batch_size=args.columns, shuffle=False, num_workers=args.workers, pin_memory=False,
@@ -86,25 +94,18 @@ def main(args: RunConfiguration):
     dir_path = args.plots_path
     os.makedirs(dir_path, exist_ok=True)
 
+    img_path_ls = []
     with PdfPages(os.path.join(dir_path, "plots.pdf")) as pdf:
-        for i, (images, target) in enumerate(data_loader):
+        for i, (x, _) in enumerate(data_loader):
             images = images.to(device)
 
-            # === normalize first few images
-            normalized_input = images.clone()
-            for k in range(args.columns):
-                imagenet_utils.NORMALIZATION(normalized_input[k])
-
             # === get mask and masked images
-            binary_mask, soft_mask = get_binarized_mask(normalized_input, model)
-            soft_masked_image = normalized_input * soft_mask
-
-            for j in range(soft_masked_image.size(0)):
-                imagenet_utils.DENORMALIZATION(soft_masked_image[j])
+            binary_mask, soft_mask = get_binarized_mask(x, model)
+            soft_masked_image = x * soft_mask
             masked_in_x, masked_out_x = get_masked_images(images, binary_mask, 0.0)
             infilled_masked_in, infilled_masked_out = get_infilled(
                 infiller=infiller, masked_in_x=masked_in_x, masked_out_x=masked_out_x,
-                binary_mask=binary_mask, x=normalized_input,
+                binary_mask=binary_mask, x=x,
             )
 
             # === setup plot
@@ -138,7 +139,9 @@ def main(args: RunConfiguration):
             axes[4, 0].set_ylabel("Masked Out+Infill", fontsize=6)
             axes[5, 0].set_ylabel("Soft Masked Out", fontsize=6)
 
-            path = os.path.join(dir_path, str(i) + '.png')
+            file_name = "{}.png".format(i)
+            path = os.path.join(dir_path, file_name)
+            img_path_ls.append(file_name)
             plt.savefig(path, dpi=300, bbox_inches='tight')
             pdf.savefig()
             plt.show()
@@ -146,6 +149,7 @@ def main(args: RunConfiguration):
             plt.gcf()
             plt.close('all')
             print('plotted to {}.'.format(path))
+    write_html(img_path_ls, os.path.join(dir_path, "index.html"))
 
 
 if __name__ == '__main__':
