@@ -31,13 +31,24 @@ def make_dataset(fol, class_to_idx, extensions):
     return images
 
 
-def generate_jsons(train_path, val_path, num_per_class_in_a, output_base_path, seed=1234):
+def generate_jsons(train_path, val_path, output_base_path, num_per_class_in_a=50, seed=1234):
     random_state = np.random.RandomState(seed=seed)
     classes, class_to_idx = find_classes(train_path)
     samples = make_dataset(train_path, class_to_idx, IMG_EXTENSIONS)
     random_state.shuffle(samples)
 
     # Train
+    io.write_json(
+        {
+            "root": train_path,
+            "samples": samples,
+            "classes": classes,
+            "class_to_idx": class_to_idx,
+        },
+        os.path.join(output_base_path, "train.json"),
+    )
+
+    # Resampled Train
     class_dict = {}
     for path, class_idx in samples:
         if class_idx not in class_dict:
@@ -72,6 +83,17 @@ def generate_jsons(train_path, val_path, num_per_class_in_a, output_base_path, s
             "class_to_idx": class_to_idx,
         },
         os.path.join(output_base_path, "train_train.json"),
+    )
+    # Shuffled Train
+    random_classes = np.random.randint(1000, size=len(samples))
+    io.write_json(
+        {
+            "root": train_path,
+            "samples": [(path, int(c)) for (path, _), c in zip(samples, random_classes)],
+            "classes": classes,
+            "class_to_idx": class_to_idx,
+        },
+        os.path.join(output_base_path, "train_shuffle.json"),
     )
 
     # Val

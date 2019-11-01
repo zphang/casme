@@ -146,7 +146,7 @@ def main(args):
     )
 
     if args.need_infiller:
-        infiller = archs.get_infiller(args.infiller_model).to(device)
+        infiller = archs.get_infiller(args.infiller_model).to(device).eval()
         casme_runner = core.InfillerCASMERunner(
             classifier=classifier,
             masker=masker,
