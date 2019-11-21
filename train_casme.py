@@ -1,4 +1,5 @@
 import time
+import tqdm
 
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
@@ -10,7 +11,6 @@ from casme.train_utils import single_adjust_learning_rate, save_checkpoint, set_
 from casme.tasks.imagenet.utils import get_data_loaders
 
 import zconf
-
 import zproto.zlogv1 as zlog
 
 
@@ -54,8 +54,7 @@ class RunConfiguration(zconf.RunConfig):
                            help='frequency of model saving to history (in batches)')
     f_size = zconf.attr(default=30, type=int,
                         help='size of F set - maximal number of previous classifier iterations stored')
-    lambda_r = zconf.attr(default=10, type=float,
-                          help='regularization weight controlling mask size')
+    lambda_r = zconf.attr(default=None, type=float)
     lambda_tv = zconf.attr(default=None, type=float)
 
     mask_in_criterion = zconf.attr(default="none", type=str, help='crossentropy|kldivergence|none')
@@ -63,12 +62,16 @@ class RunConfiguration(zconf.RunConfig):
     mask_in_objective_direction = zconf.attr(default="maximize", help="maximize|minimize")
     mask_in_objective_type = zconf.attr(default="entropy", help="entropy|classification")
     mask_in_weight = zconf.attr(default=1.0, type=float)
+    mask_in_lambda_r = zconf.attr(default=10, type=float)
+    mask_in_lambda_tv = zconf.attr(default=None, type=float)
 
     mask_out_criterion = zconf.attr(default="none", type=str, help='crossentropy|kldivergence|none')
     mask_out_criterion_config = zconf.attr(default="", type=str, help='etc')
     mask_out_objective_direction = zconf.attr(default="maximize", help="maximize|minimize")
     mask_out_objective_type = zconf.attr(default="entropy", help="entropy|classification")
     mask_out_weight = zconf.attr(default=1.0, type=float)
+    mask_out_lambda_r = zconf.attr(default=10, type=float)
+    mask_out_lambda_tv = zconf.attr(default=None, type=float)
 
     reproduce = zconf.attr(default='',
                            help='reproducing paper results (F|L|FL|L100|L1000)')
@@ -90,6 +93,17 @@ class RunConfiguration(zconf.RunConfig):
         randomhash = ''.join(str(time.time()).split('.'))
         self.name = self.name + "___" + randomhash
         self.need_infiller = self.do_infill_for_mask_in or self.do_infill_for_mask_out
+        if self.lambda_r is not None:
+            assert self.mask_in_lambda_r == 10
+            assert self.mask_out_lambda_r == 10
+            self.mask_in_lambda_r = self.lambda_r
+            self.mask_out_lambda_r = self.lambda_r
+        if self.lambda_tv is not None:
+            assert self.mask_in_lambda_tv is None
+            assert self.mask_out_lambda_tv is None
+            self.mask_in_lambda_tv = self.lambda_tv
+            self.mask_out_lambda_tv = self.lambda_tv
+
         set_args(self)
 
 
@@ -123,8 +137,8 @@ def main(args):
     mask_in_criterion = criterion.resolve_masker_criterion(
         masker_criterion_type=args.mask_in_criterion,
         masker_criterion_config=args.mask_in_criterion_config,
-        lambda_r=args.lambda_r,
-        lambda_tv=args.lambda_tv,
+        lambda_r=args.mask_in_lambda_r,
+        lambda_tv=args.mask_in_lambda_tv,
         add_prob_layers=args.add_prob_layers,
         prob_loss_func=args.prob_loss_func,
         objective_direction=args.mask_in_objective_direction,
@@ -135,8 +149,8 @@ def main(args):
     mask_out_criterion = criterion.resolve_masker_criterion(
         masker_criterion_type=args.mask_out_criterion,
         masker_criterion_config=args.mask_out_criterion_config,
-        lambda_r=args.lambda_r,
-        lambda_tv=args.lambda_tv,
+        lambda_r=args.mask_out_lambda_r,
+        lambda_tv=args.mask_out_lambda_tv,
         add_prob_layers=args.add_prob_layers,
         prob_loss_func=args.prob_loss_func,
         objective_direction=args.mask_out_objective_direction,
@@ -206,7 +220,7 @@ def main(args):
         )
 
     # training loop
-    for epoch in range(args.epochs):
+    for epoch in tqdm.trange(args.epochs, desc="Epochs"):
         single_adjust_learning_rate(
             optimizer=classifier_optimizer,
             epoch=epoch, lr=args.lr, lrde=args.lrde,

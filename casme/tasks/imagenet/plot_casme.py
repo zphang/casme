@@ -1,5 +1,6 @@
 import os
 import random
+import numpy as np
 
 import torch
 import torchvision.transforms as transforms
@@ -50,6 +51,10 @@ def write_html(img_path_ls, output_path):
     io.write_file(s, output_path)
 
 
+def to_plottable(x):
+    return np.clip(imagenet_utils.denormalize_arr(imagenet_utils.tensor_to_image_arr(x)), 0, 1)
+
+
 def get_infilled(infiller, masked_in_x, masked_out_x, binary_mask, x):
     if infiller is not None:
         infilled_masked_in = core.infill_masked_in(
@@ -68,7 +73,7 @@ def get_infilled(infiller, masked_in_x, masked_out_x, binary_mask, x):
 def main(args: RunConfiguration):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     data_config = io.read_json(args.val_json)
-    data_config["samples"] = random.choices(
+    data_config["samples"] = random.Random(args.seed).choices(
         data_config["samples"],
         k=args.columns * args.plots,
     )
@@ -97,12 +102,12 @@ def main(args: RunConfiguration):
     img_path_ls = []
     with PdfPages(os.path.join(dir_path, "plots.pdf")) as pdf:
         for i, (x, _) in enumerate(data_loader):
-            images = images.to(device)
+            x = x.to(device)
 
             # === get mask and masked images
             binary_mask, soft_mask = get_binarized_mask(x, model)
             soft_masked_image = x * soft_mask
-            masked_in_x, masked_out_x = get_masked_images(images, binary_mask, 0.0)
+            masked_in_x, masked_out_x = get_masked_images(x, binary_mask, 0.0)
             infilled_masked_in, infilled_masked_out = get_infilled(
                 infiller=infiller, masked_in_x=masked_in_x, masked_out_x=masked_out_x,
                 binary_mask=binary_mask, x=x,
@@ -121,12 +126,12 @@ def main(args: RunConfiguration):
 
             # === plot
             for col in range(args.columns):
-                axes[0, col].imshow(permute_image(images[col]))
-                axes[1, col].imshow(permute_image(masked_in_x[col]))
-                axes[2, col].imshow(permute_image(masked_out_x[col]))
-                axes[3, col].imshow(permute_image(infilled_masked_in[col]))
-                axes[4, col].imshow(permute_image(infilled_masked_out[col]))
-                axes[5, col].imshow(permute_image(soft_masked_image[col]))
+                axes[0, col].imshow(to_plottable(x[col]))
+                axes[1, col].imshow(to_plottable(masked_in_x[col]))
+                axes[2, col].imshow(to_plottable(masked_out_x[col]))
+                axes[3, col].imshow(to_plottable(infilled_masked_in[col]))
+                axes[4, col].imshow(to_plottable(infilled_masked_out[col]))
+                axes[5, col].imshow(to_plottable(soft_masked_image[col]))
 
             for ax in axes.flatten():
                 ax.set_xticks([])
@@ -142,7 +147,7 @@ def main(args: RunConfiguration):
             file_name = "{}.png".format(i)
             path = os.path.join(dir_path, file_name)
             img_path_ls.append(file_name)
-            plt.savefig(path, dpi=300, bbox_inches='tight')
+            plt.savefig(path, dpi=100, bbox_inches='tight')
             pdf.savefig()
             plt.show()
             plt.clf()

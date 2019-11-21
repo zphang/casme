@@ -1,5 +1,7 @@
 import copy
 import random
+import tqdm
+
 import torch
 
 from casme import criterion
@@ -86,8 +88,10 @@ class CASMERunner(BaseRunner):
 
     def train_or_eval(self, data_loader, is_train=False, epoch=None):
         self.set_models_mode(is_train)
-        for i, (x, y) in enumerate(data_loader):
-            if is_train and i > len(data_loader) * self.perc_of_training:
+        length = len(data_loader) * self.perc_of_training if is_train else len(data_loader)
+        desc = "Train" if is_train else "Eval"
+        for i, (x, y) in tqdm.tqdm(enumerate(data_loader), total=length, desc=desc):
+            if i > length:
                 break
             x, y = x.to(self.device), y.to(self.device)
             x = per_image_normalization(x, mode=self.image_normalization_mode)
@@ -96,7 +100,7 @@ class CASMERunner(BaseRunner):
                 self.logger.write_entry("train_status", {
                     "epoch": epoch,
                     "i": i,
-                    "epoch_t": int(len(data_loader) * self.perc_of_training),
+                    "epoch_t": length,
                     "dataset_t": len(data_loader),
                 })
             else:
