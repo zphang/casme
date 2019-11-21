@@ -4,8 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from casme.ext.pytorch_inpainting_with_partial_conv import gram_matrix, total_variation_loss
-
 
 from pyutils.datastructures import combine_dicts
 
@@ -69,58 +67,6 @@ def apply_uniform_random_value_mask_func(x, mask):
 
 def default_infill_func(x, mask, generated_image):
     return generated_image * mask + x * (1-mask)
-
-
-class InfillerCriterion(nn.Module):
-    def __init__(self, model_type, style_loss_multiplier):
-        super().__init__()
-        self.l1 = nn.L1Loss()
-        # TODO: take mask function as parameters
-        # TODO: take model hyperparameters (how many layers to use fur perceptual loss, loss mutlipliers)
-        # TODO: use different criterion depending on models
-        self.model_type = model_type
-
-    def forward(self, x, mask, generated_image, infilled_image, layers, generated_layers,
-                infilled_layers, dilated_boundaries):
-        # x here is ground-truth
-
-        # assuming 1 means background
-        hole = self.l1(MaskFunc.mask_out(x, mask), MaskFunc.mask_out(generated_image, mask))
-        valid = self.l1(MaskFunc.mask_in(x, mask), MaskFunc.mask_in(generated_image, mask))
-
-        # layers = feature of gt image
-
-        perceptual_loss = 0  # self.l1(layers[i], infilled_layers[i])
-        style_out_loss = 0  # self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
-        style_comp_loss = 0  # self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
-        for i in range(3):
-            perceptual_loss += self.l1(layers[i], infilled_layers[i])
-            style_out_loss += self.l1(gram_matrix(layers[i]), gram_matrix(generated_layers[i]))
-            style_comp_loss += self.l1(gram_matrix(layers[i]), gram_matrix(infilled_layers[i]))
-
-        # TODO: Is this loss wrong? if it only backprops to generated bits... ... Try implementing my own.
-        # TODO: try using total_variation_loss on dilated boundary region only... but still, incorrect boundary
-        tv = total_variation_loss(MaskFunc.mask_in(infilled_image, dilated_boundaries))
-        regularization = 0
-        loss = (
-            6 * hole
-            + valid
-            + 0.05 * perceptual_loss
-            + self.style_loss_multiplier*(style_out_loss+style_comp_loss)
-            + 0.1 * tv
-        )
-        infiller_loss = loss + regularization
-        metadata = {
-            "hole": hole,
-            "valid": valid,
-            "perceptual_loss": perceptual_loss,
-            "style_out_loss": style_out_loss,
-            "style_comp_loss": style_comp_loss,
-            "tv": tv,
-            "loss": loss,
-            "regularization": regularization,
-        }
-        return infiller_loss, metadata
 
 
 class MaskerCriterion(nn.Module):
