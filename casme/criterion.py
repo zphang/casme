@@ -93,9 +93,13 @@ class MaskerCriterion(nn.Module):
         _, max_indexes = y_hat.detach().max(1)
         _, max_indexes_on_masked_x = y_hat_from_masked_x.detach().max(1)
         correct_on_clean = y.eq(max_indexes)
+        metadata = {}
 
         mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
+        metadata["mask_mean"] = mask_mean
+        # Potentially rename to mask_size or mask_size_for_reg
         if self.add_prob_layers:
+            metadata["use_p"] = use_p
             # adjust to minimize deviation from p
             mask_mean = (mask_mean - use_p)
             if self.prob_loss_func == "l1":
@@ -122,21 +126,17 @@ class MaskerCriterion(nn.Module):
             reduce=reduce,
         )
         masker_loss = loss + regularization
+
         if reduce:
-            regularization = regularization.mean()
-            metadata = {
-                "correct_on_clean": correct_on_clean.float().mean(),
-                "loss": loss,
-                "regularization": regularization,
-                "tv_reg": tv_reg,
-            }
+            metadata["regularization"] = regularization.mean()
+            metadata["correct_on_clean"] = correct_on_clean.float().mean()
+
         else:
-            metadata = {
-                "correct_on_clean": correct_on_clean.float(),
-                "loss": loss,
-                "regularization": regularization,
-                "tv_reg": tv_reg,
-            }
+            metadata["regularization"] = regularization
+            metadata["correct_on_clean"] = correct_on_clean.float()
+
+        metadata["loss"] = loss
+        metadata["tv_reg"] = tv_reg
 
         metadata = combine_dicts([metadata, mask_reg_metadata], strict=True)
         if self.objective_type == "entropy":
@@ -234,7 +234,8 @@ class MaskerCriterion(nn.Module):
             }
         return mask_reg_mean, mask_reg_metadata
 
-    def compute_mask_regularization(self, y, max_indexes_on_masked_x, correct_on_clean, mask_mean, reduce=True):
+    def compute_mask_regularization(self, y, max_indexes_on_masked_x, correct_on_clean, mask_mean,
+                                    use_p=None, reduce=True):
         if self.mask_reg_mode == "mask_out":
             return self.compute_mask_out_regularization(
                 y=y,

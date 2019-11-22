@@ -34,7 +34,7 @@ def casme_load_model(casm_path):
     classifier.eval().to(device)
 
     masker = archs.default_masker(
-        add_prob_layers=getattr(checkpoint["args"], "add_prob_layers", None)
+        add_prob_layers=checkpoint["args"].get("add_prob_layers", None)
     )
     print(checkpoint["args"])
     if 'state_dict_masker' in checkpoint:
