@@ -80,6 +80,7 @@ class RunConfiguration(zconf.RunConfig):
     prob_sample_low = zconf.attr(default=0.25, type=float)
     prob_sample_high = zconf.attr(default=0.75, type=float)
     prob_loss_func = zconf.attr(default="l1")
+    add_class_ids = zconf.attr(action='store_true')
 
     # Placeholders
     casms_path = zconf.attr(default='')
@@ -116,6 +117,7 @@ def main(args):
     masker = archs.default_masker(
         final_upsample_mode=args.upsample,
         add_prob_layers=args.add_prob_layers,
+        add_class_ids=args.add_class_ids,
     ).to(device)
     classifier_optimizer = torch.optim.SGD(
         classifier.parameters(), args.lr,
@@ -211,6 +213,7 @@ def main(args):
             prob_sample_high=args.prob_sample_high,
             mask_in_weight=args.mask_in_weight,
             mask_out_weight=args.mask_out_weight,
+            add_class_ids=args.add_class_ids,
             device=device,
             logger=zlog.ZBufferedLogger(
                 fol_path=args.log_path,

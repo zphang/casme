@@ -53,6 +53,7 @@ class CASMERunner(BaseRunner):
                  add_prob_layers, prob_sample_low, prob_sample_high,
                  mask_in_weight,
                  mask_out_weight,
+                 add_class_ids,
                  device,
                  logger: zlog.BaseZLogger = zlog.PRINT_LOGGER,
                  ):
@@ -77,6 +78,7 @@ class CASMERunner(BaseRunner):
         self.prob_sample_high = prob_sample_high
         self.mask_in_weight = mask_in_weight
         self.mask_out_weight = mask_out_weight
+        self.add_class_ids = add_class_ids
 
         self.device = device
         self.logger = logger
@@ -126,6 +128,7 @@ class CASMERunner(BaseRunner):
             mask = self.masker(
                 layers=self.detach_layers(layers),
                 use_p=use_p,
+                class_ids=y if self.add_class_ids else None,
             )
             classifier_for_mask, update_classifier = self.choose_masked_classifier(is_train)
             log_data.add_dict(mask_to_stats(mask))

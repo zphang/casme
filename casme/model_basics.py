@@ -26,7 +26,7 @@ MODEL_PARAMETERS = {
 def casme_load_model(casm_path):
     name = casm_path.split('/')[-1].replace('.chk', '')
 
-    print("\n=> Loading model localized in '{}'".format(casm_path))
+    print("\n=> Loading model from '{}'".format(casm_path))
     classifier = archs.resnet50shared()
     checkpoint = torch.load(casm_path)
 
@@ -34,7 +34,8 @@ def casme_load_model(casm_path):
     classifier.eval().to(device)
 
     masker = archs.default_masker(
-        add_prob_layers=checkpoint["args"].get("add_prob_layers", None)
+        add_prob_layers=checkpoint["args"].get("add_prob_layers", None),
+        add_class_ids=checkpoint["args"].get("add_class_ids", None),
     )
     print(checkpoint["args"])
     if 'state_dict_masker' in checkpoint:
@@ -101,11 +102,11 @@ def get_masks_and_check_predictions(input, target, model, erode_k=0, dilate_k=0)
         return mask.squeeze().cpu().numpy(), rectangular.squeeze().cpu().numpy(), isCorrect.cpu().numpy() 
 
 
-def get_mask(input_, model, use_p=None, get_output=False):
+def get_mask(input_, model, use_p=None, class_ids=None, get_output=False):
     with torch.no_grad():
         input_ = input_.to(device)
         classifier_output, layers = model['classifier'](input_, return_intermediate=True)
-        masker_output = model['masker'](layers, use_p=use_p)
+        masker_output = model['masker'](layers, use_p=use_p, class_ids=class_ids)
         if get_output:
             return masker_output, classifier_output
         else:
@@ -170,3 +171,10 @@ def get_pred_bounding_box(rect):
         "xmax": xmax,
         "ymax": ymax,
     }
+
+
+def get_saliency_point(single_soft_mask_arr, single_binary_mask_arr):
+    # Need to check for mask in/out. Currently assuming mask in?
+    mask_arr = single_soft_mask_arr * get_largest_connected(single_binary_mask_arr)
+    point = tuple([int(np.round(i)) for i in scipy.ndimage.measurements.center_of_mass(mask_arr)])
+    return point

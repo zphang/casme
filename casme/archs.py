@@ -1,5 +1,5 @@
 import math
-import numpy as np
+import types
 
 import torch
 import torch.nn as nn
@@ -268,8 +268,18 @@ class ResNetShared(ResNet):
             return x
 
 
+def monkey_patch_resnet(resnet_model):
+    if getattr(resnet_model, "__is_patched", None):
+        return
+    resnet_model.forward = types.MethodType(ResNetShared.forward, resnet_model)
+    resnet_model.__is_patched = True
+
+
 def resnet50shared(pretrained=False, **kwargs):
-    model = ResNetShared(Bottleneck, [3, 4, 6, 3], **kwargs)
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    # Monkey-patch
+    print("Patching ResNet.forward")
+    monkey_patch_resnet(model)
     if pretrained:
         model.load_state_dict(model_zoo.load_url('https://download.pytorch.org/models/resnet50-19c8e357.pth'))
     return model
@@ -335,24 +345,60 @@ class Infiller(nn.Module):
             raise NotImplementedError()
 
 
+class Film(nn.Module):
+    def __init__(self, dim_size, input_dim_size):
+        super().__init__()
+        self.film_fc = nn.Linear(dim_size, input_dim_size)
+        self.film_hc = nn.Linear(dim_size, input_dim_size)
+
+    def forward(self, x, conditioning_info):
+        gamma = self.film_fc(conditioning_info).unsqueeze(-1).unsqueeze(-1)
+        beta = self.film_fc(conditioning_info).unsqueeze(-1).unsqueeze(-1)
+        return x * gamma + beta
+
+
+class ClassInputModule(nn.Module):
+    def __init__(self, num_classes=1000, dim_size=64, input_dim_size=2048):
+        super().__init__()
+        self.embedding = nn.Embedding(num_classes, dim_size)
+        # self.film = Film(dim_size=dim_size, input_dim_size=input_dim_size)
+
+    def forward(self, x, class_ids):
+        embedded = self.embedding(class_ids)
+        # return self.film(x, embedded)
+        return embedded
+
+
 class Masker(nn.Module):
 
     def __init__(self, in_channels, out_channel,
-                 final_upsample_mode='nearest', add_prob_layers=False):
+                 final_upsample_mode='nearest',
+                 add_prob_layers=False,
+                 add_class_ids=False,
+                 ):
         super().__init__()
         self.add_prob_layers = add_prob_layers
+        self.add_class_ids = add_class_ids
 
-        p_dim = 1 if self.add_prob_layers else 0
-        self.conv1x1_1 = self._make_conv1x1_upsampled(in_channels[1] + p_dim, out_channel)
-        self.conv1x1_2 = self._make_conv1x1_upsampled(in_channels[2] + p_dim, out_channel, 2)
-        self.conv1x1_3 = self._make_conv1x1_upsampled(in_channels[3] + p_dim, out_channel, 4)
-        self.conv1x1_4 = self._make_conv1x1_upsampled(in_channels[4] + p_dim, out_channel, 8)
+        more_dims = 0
+        if self.add_prob_layers:
+            more_dims += 1
+        if self.add_class_ids:
+            more_dims += 64
+        self.conv1x1_1 = self._make_conv1x1_upsampled(in_channels[1] + more_dims, out_channel)
+        self.conv1x1_2 = self._make_conv1x1_upsampled(in_channels[2] + more_dims, out_channel, 2)
+        self.conv1x1_3 = self._make_conv1x1_upsampled(in_channels[3] + more_dims, out_channel, 4)
+        self.conv1x1_4 = self._make_conv1x1_upsampled(in_channels[4] + more_dims, out_channel, 8)
         self.final = nn.Sequential(
-            nn.Conv2d(in_channels[0] + 4 * out_channel + p_dim, 1,
+            nn.Conv2d(in_channels[0] + 4 * out_channel + more_dims, 1,
                       kernel_size=3, stride=1, padding=1, bias=True),
             nn.Sigmoid(),
             Upsample(scale_factor=4, mode=final_upsample_mode),
         )
+        if self.add_class_ids:
+            self.class_module = ClassInputModule()
+        else:
+            self.class_module = None
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -377,18 +423,14 @@ class Masker(nn.Module):
                 nn.BatchNorm2d(outplanes),
                 nn.ReLU(inplace=True)
             )
-    
-    def forward(self, layers, use_p):
-        if self.add_prob_layers:
-            assert use_p is not None
-            if not isinstance(use_p, torch.Tensor):
-                batch_size = layers[0].shape[0]
-                device = layers[0].device
-                use_p = torch.Tensor([use_p] * batch_size).to(device)
 
-            layers = self.append_p(layers, use_p)
-        else:
-            assert use_p is None
+    def forward(self, layers, use_p, class_ids):
+        additional_channels = (
+            self.maybe_add_prob_layers(layers, use_p)
+            + self.maybe_add_class_layers(layers, class_ids)
+        )
+
+        layers = self.append_channels(layers, additional_channels)
 
         k = [
             layers[0],
@@ -399,14 +441,42 @@ class Masker(nn.Module):
         ]
         return self.final(torch.cat(k, 1))
 
+    def maybe_add_prob_layers(self, layers, use_p):
+        if self.add_prob_layers:
+            assert use_p is not None
+            if not isinstance(use_p, torch.Tensor):
+                batch_size = layers[0].shape[0]
+                device = layers[0].device
+                use_p = torch.Tensor([use_p]).expand(batch_size, -1).to(device)
+            elif len(use_p.shape) == 1:
+                use_p = use_p.unsqueeze(-1)
+            return [use_p]
+        else:
+            assert use_p is None
+            return []
+
+    def maybe_add_class_layers(self, layers, class_ids):
+        if self.add_class_ids:
+            return [self.class_module(layers[-1], class_ids)]
+        else:
+            assert class_ids is None
+            return []
+
     @classmethod
-    def append_p(cls, layers, p):
+    def append_channels(cls, layers, additional_channels):
+        if not additional_channels:
+            return layers
+        elif len(additional_channels) == 1:
+            additional_channels_tensor = additional_channels[0]
+        else:
+            additional_channels_tensor = torch.cat(additional_channels, dim=1)
+
         new_layers = []
         for layer in layers:
-            p_slice = p \
-                .expand(1, layer.shape[2], layer.shape[3], -1) \
-                .permute(3, 0, 1, 2)
-            new_layers.append(torch.cat([layer, p_slice], dim=1))
+            additional_channels_slice = additional_channels_tensor \
+                .expand(layer.shape[2], layer.shape[3], -1, -1) \
+                .permute(2, 3, 0, 1)
+            new_layers.append(torch.cat([layer, additional_channels_slice], dim=1))
         return new_layers
 
 

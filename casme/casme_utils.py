@@ -4,11 +4,11 @@ import numpy as np
 import torch
 import torchvision.transforms as transforms
 
-from casme.model_basics import binarize_mask, get_mask
+from casme.model_basics import binarize_mask, get_mask, get_saliency_point
 
 
-def get_binarized_mask(input, model, use_p=None):
-    mask = get_mask(input, model, use_p=use_p)
+def get_binarized_mask(input, model, use_p=None, class_ids=None):
+    mask = get_mask(input, model, use_p=use_p, class_ids=class_ids)
     return binarize_mask(mask.clone()), mask
 
 
@@ -81,3 +81,20 @@ def count_params(module):
 
 def arr_for_plot(tensor):
     return tensor.detach().permute(1, 2, 0).cpu().numpy()
+
+
+class CasmeModelWrapper:
+    def __init__(self, model_dict):
+        self.model_dict = model_dict
+
+    def get_saliency_points(self, x, y):
+        binary_mask, soft_mask = get_binarized_mask(x, self.model_dict, class_ids=y)
+        binary_mask_arr = binary_mask.squeeze(1).cpu().numpy()
+        soft_mask_arr = soft_mask.squeeze(1).cpu().numpy()
+        saliency_point_ls = []
+        for i in range(x.shape[0]):
+            saliency_point_ls.append(get_saliency_point(
+                single_soft_mask_arr=soft_mask_arr[i],
+                single_binary_mask_arr=binary_mask_arr[i],
+            ))
+        return saliency_point_ls
