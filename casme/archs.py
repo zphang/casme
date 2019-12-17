@@ -431,12 +431,14 @@ class Masker(nn.Module):
                  add_prob_layers=False,
                  add_class_ids=False,
                  apply_gumbel=False,
+                 apply_gumbel_tau=0.1
                  ):
         super().__init__()
         self.final_upsample_mode = final_upsample_mode
         self.add_prob_layers = add_prob_layers
         self.add_class_ids = add_class_ids
         self.apply_gumbel = apply_gumbel
+        self.apply_gumbel_tau = apply_gumbel_tau
 
         more_dims = 0
         if self.add_prob_layers:
@@ -472,7 +474,7 @@ class Masker(nn.Module):
             final = GumbelFinal(
                 in_channels=in_channels,
                 out_channels=out_channels,
-                tau=self.tau,
+                tau=self.apply_gumbel_tau,
                 final_upsample_mode=self.final_upsample_mode,
             )
         else:
