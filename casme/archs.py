@@ -275,13 +275,31 @@ def monkey_patch_resnet(resnet_model):
     resnet_model.__is_patched = True
 
 
-def resnet50shared(pretrained=False, **kwargs):
+def replace_prefix(s, prefix):
+    if s.startswith(prefix):
+        return s[len(prefix):]
+    else:
+        return s
+
+
+def resnet50shared(pretrained=False, path=None, **kwargs):
     model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
     # Monkey-patch
     print("Patching ResNet.forward")
     monkey_patch_resnet(model)
     if pretrained:
-        model.load_state_dict(model_zoo.load_url('https://download.pytorch.org/models/resnet50-19c8e357.pth'))
+        if path is None:
+            model.load_state_dict(model_zoo.load_url('https://download.pytorch.org/models/resnet50-19c8e357.pth'))
+        else:
+            loaded = torch.load(path)
+            if "best_acc1" in loaded:
+                # From PyTorch script
+                modified = {replace_prefix(k, "module."): v for k, v in loaded["state_dict"].items()}
+                model.load_state_dict(modified)
+            else:
+                model.load_state_dict(loaded)
+    else:
+        assert path is None
     return model
 
 

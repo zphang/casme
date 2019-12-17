@@ -13,6 +13,7 @@ class RunConfiguration(zconf.RunConfig):
     base_path = zconf.attr()
     output_path = zconf.attr(default=None)
 
+    classifier_load_mode = zconf.attr(default="pickled")
     workers = zconf.attr(default=4, type=int, help='number of data loading workers (default: 4)')
     batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 256)')
     print_freq = zconf.attr(default=10, type=int, help='print frequency (default: 10)')
@@ -29,6 +30,8 @@ def main(args: RunConfiguration):
     print("Scoring {}".format(casm_path))
 
     if not args.output_path:
+        if args.classifier_load_mode != "pickled":
+            raise AssertionError("need explicit output path")
         output_path = os.path.join(args.base_path, "score.json")
     else:
         output_path = args.output_path
@@ -38,6 +41,7 @@ def main(args: RunConfiguration):
         mode=args.mode,
         bboxes_path='/gpfs/data/geraslab/zphang/working/190624_new_casme/imagenet_annotation.json',
         casm_path=casm_path,
+        classifier_load_mode=args.classifier_load_mode,
         output_path=output_path,
         workers=args.workers,
         batch_size=args.batch_size,

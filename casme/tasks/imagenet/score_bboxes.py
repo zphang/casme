@@ -20,6 +20,7 @@ class RunConfiguration(zconf.RunConfig):
     mode = zconf.attr(type="str")
     bboxes_path = zconf.attr(help='path to bboxes_json')
     casm_path = zconf.attr(help='model_checkpoint')
+    classifier_load_mode = zconf.attr(default="pickled")
     output_path = zconf.attr(help='output_path')
 
     workers = zconf.attr(default=4, type=int, help='number of data loading workers (default: 4)')
@@ -53,7 +54,7 @@ def main(args: RunConfiguration):
     elif args.mode == "center":
         model = {'special': 'center'}
     elif args.mode == "casme":
-        model = casme_load_model(args.casm_path)
+        model = casme_load_model(args.casm_path, classifier_load_mode=args.classifier_load_mode)
     elif args.mode == "icasme":
         model = icasme_load_model(args.casm_path)
     else:

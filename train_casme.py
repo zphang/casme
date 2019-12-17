@@ -54,6 +54,7 @@ class RunConfiguration(zconf.RunConfig):
                            help='frequency of model saving to history (in batches)')
     f_size = zconf.attr(default=30, type=int,
                         help='size of F set - maximal number of previous classifier iterations stored')
+    resnet_path = zconf.attr(default=None, type=str, help="If none, defaults to loading from full ResNet-50")
     lambda_r = zconf.attr(default=None, type=float)
     lambda_tv = zconf.attr(default=None, type=float)
 
@@ -113,7 +114,7 @@ def main(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # create models and optimizers
-    classifier = archs.resnet50shared(pretrained=True).to(device)
+    classifier = archs.resnet50shared(pretrained=True, path=args.resnet_path).to(device)
     masker = archs.default_masker(
         final_upsample_mode=args.upsample,
         add_prob_layers=args.add_prob_layers,

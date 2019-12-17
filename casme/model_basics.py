@@ -23,16 +23,26 @@ MODEL_PARAMETERS = {
 }
 
 
-def casme_load_model(casm_path):
+def casme_load_model(casm_path, classifier_load_mode="pickled"):
     name = casm_path.split('/')[-1].replace('.chk', '')
 
     print("\n=> Loading model from '{}'".format(casm_path))
-    classifier = archs.resnet50shared()
     checkpoint = torch.load(casm_path)
 
-    classifier.load_state_dict(checkpoint['state_dict_classifier'])
+    if classifier_load_mode == "pickled":
+        classifier = archs.resnet50shared()
+        classifier.load_state_dict(checkpoint['state_dict_classifier'])
+    elif classifier_load_mode == "original":
+        classifier = archs.resnet50shared(pretrained=True)
+    elif classifier_load_mode.startwith("path:"):
+        classifier = archs.resnet50shared(pretrained=True, path=classifier_load_mode[5:])
+    else:
+        raise KeyError(classifier_load_mode)
+
     classifier.eval().to(device)
 
+    if not isinstance(checkpoint["args"], dict):
+        checkpoint["args"] = checkpoint["args"].__dict__
     masker = archs.default_masker(
         add_prob_layers=checkpoint["args"].get("add_prob_layers", None),
         add_class_ids=checkpoint["args"].get("add_class_ids", None),
