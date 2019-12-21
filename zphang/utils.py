@@ -1,5 +1,10 @@
 import glob
+import pandas as pd
+import os
 import re
+
+import pyutils.datastructures as datastructures
+import pyutils.io as io
 
 
 def find_best_model(base_path):
@@ -25,3 +30,19 @@ def tags_to_regex(tag_pattern, format_dict=None, default_format="\\w+"):
         last_end = end
     new_pattern = "".join(new_tokens)
     return new_pattern
+
+
+def load_score(path_ls, regex_str, return_df=True):
+    regex = re.compile(regex_str)
+    results = []
+    for path in path_ls:
+        matched = next(regex.finditer(path)).groupdict()
+        score_path = os.path.join(os.path.abspath(os.path.join(path, "..")), "score.json")
+        if not os.path.exists(score_path):
+            continue
+        scores = io.read_json(score_path)
+        results.append(datastructures.combine_dicts([matched, scores]))
+    if return_df:
+        return pd.DataFrame(results)
+    else:
+        return results
