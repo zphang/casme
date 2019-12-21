@@ -446,13 +446,14 @@ class GumbelFinal(nn.Module):
 
 class Masker(nn.Module):
 
-    def __init__(self, in_channels, out_channel,
+    def __init__(self, in_channels, out_channels,
                  final_upsample_mode='nearest',
                  add_prob_layers=False,
                  add_class_ids=False,
                  apply_gumbel=False,
                  apply_gumbel_tau=0.1,
                  gumbel_output_mode="hard",
+                 use_layers=(0, 1, 2, 3, 4),
                  ):
         super().__init__()
         self.final_upsample_mode = final_upsample_mode
@@ -461,19 +462,31 @@ class Masker(nn.Module):
         self.apply_gumbel = apply_gumbel
         self.apply_gumbel_tau = apply_gumbel_tau
         self.gumbel_output_mode = gumbel_output_mode
+        self.use_layers = use_layers
 
         more_dims = 0
         if self.add_prob_layers:
             more_dims += 1
         if self.add_class_ids:
             more_dims += 64
-        self.conv1x1_1 = self._make_conv1x1_upsampled(in_channels[1] + more_dims, out_channel)
-        self.conv1x1_2 = self._make_conv1x1_upsampled(in_channels[2] + more_dims, out_channel, 2)
-        self.conv1x1_3 = self._make_conv1x1_upsampled(in_channels[3] + more_dims, out_channel, 4)
-        self.conv1x1_4 = self._make_conv1x1_upsampled(in_channels[4] + more_dims, out_channel, 8)
 
+        self.conv1x1_1 = None
+        self.conv1x1_2 = None
+        self.conv1x1_3 = None
+        self.conv1x1_4 = None
+        self._setup_add_conv_layers(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            more_dims=more_dims,
+        )
+
+        final_layer_in_channels = self._get_final_layer_in_channels(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            more_dims=more_dims,
+        )
         self.final = self._get_final_layer(
-            in_channels=in_channels[0] + 4 * out_channel + more_dims,
+            in_channels=final_layer_in_channels,
             out_channels=1,
         )
 
@@ -489,6 +502,15 @@ class Masker(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+
+    def _get_final_layer_in_channels(self, in_channels, out_channels, more_dims):
+        final_layer_in_channels = more_dims
+        if 0 in self.use_layers:
+            final_layer_in_channels += in_channels[0]
+        for i in range(1, 5):
+            if i in self.use_layers:
+                final_layer_in_channels += out_channels
+        return final_layer_in_channels
 
     def _get_final_layer(self, in_channels, out_channels):
         if self.apply_gumbel:
@@ -508,6 +530,16 @@ class Masker(nn.Module):
                 Upsample(scale_factor=4, mode=self.final_upsample_mode),
             )
         return final
+
+    def _setup_add_conv_layers(self, in_channels, out_channels, more_dims):
+        if 1 in self.use_layers:
+            self.conv1x1_1 = self._make_conv1x1_upsampled(in_channels[1] + more_dims, out_channels)
+        if 2 in self.use_layers:
+            self.conv1x1_2 = self._make_conv1x1_upsampled(in_channels[2] + more_dims, out_channels, 2)
+        if 3 in self.use_layers:
+            self.conv1x1_3 = self._make_conv1x1_upsampled(in_channels[3] + more_dims, out_channels, 4)
+        if 4 in self.use_layers:
+            self.conv1x1_4 = self._make_conv1x1_upsampled(in_channels[4] + more_dims, out_channels, 8)
 
     @classmethod
     def _make_conv1x1_upsampled(cls, inplanes, outplanes, scale_factor=None):
@@ -533,13 +565,17 @@ class Masker(nn.Module):
 
         layers = self.append_channels(layers, additional_channels)
 
-        k = [
-            layers[0],
-            self.conv1x1_1(layers[1]),
-            self.conv1x1_2(layers[2]),
-            self.conv1x1_3(layers[3]),
-            self.conv1x1_4(layers[4]),
-        ]
+        k = []
+        if 0 in self.use_layers:
+            k.append(layers[0])
+        if 1 in self.use_layers:
+            k.append(self.conv1x1_1(layers[1]))
+        if 2 in self.use_layers:
+            k.append(self.conv1x1_2(layers[2]))
+        if 3 in self.use_layers:
+            k.append(self.conv1x1_3(layers[3]))
+        if 4 in self.use_layers:
+            k.append(self.conv1x1_4(layers[4]))
         return self.final(torch.cat(k, 1))
 
     def maybe_add_prob_layers(self, layers, use_p):
@@ -802,3 +838,10 @@ def should_train_infiller(infiller_model):
 
 def default_masker(**kwargs):
     return Masker([64, 256, 512, 1024, 2048], 64, **kwargs)
+
+
+def string_to_tuple(string, cast=None):
+    tokens = [x.strip() for x in string.split(",")]
+    if cast is not None:
+        tokens = [cast(x) for x in tokens]
+    return tuple(tokens)

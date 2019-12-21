@@ -58,6 +58,8 @@ class RunConfiguration(zconf.RunConfig):
     lambda_r = zconf.attr(default=None, type=float)
     lambda_tv = zconf.attr(default=None, type=float)
 
+    masker_use_layers = zconf.attr(default="0,1,2,3,4", type=str)
+
     mask_in_criterion = zconf.attr(default="none", type=str, help='crossentropy|kldivergence|none')
     mask_in_criterion_config = zconf.attr(default="", type=str, help='etc')
     mask_in_objective_direction = zconf.attr(default="maximize", help="maximize|minimize")
@@ -125,6 +127,7 @@ def main(args):
         apply_gumbel=args.apply_gumbel,
         apply_gumbel_tau=args.apply_gumbel_tau,
         gumbel_output_mode=args.gumbel_output_mode,
+        use_layers=archs.string_to_tuple(args.masker_use_layers, cast=int),
     ).to(device)
     classifier_optimizer = torch.optim.SGD(
         classifier.parameters(), args.lr,
