@@ -50,6 +50,8 @@ def casme_load_model(casm_path, classifier_load_mode="pickled", verbose=True):
         add_class_ids=checkpoint["args"].get("add_class_ids", None),
         apply_gumbel=checkpoint["args"].get("apply_gumbel", None),
         apply_gumbel_tau=checkpoint["args"].get("apply_gumbel_tau", None),
+        apply_gumbel_tau=checkpoint["args"].get("apply_gumbel_tau", None),
+        use_layers=checkpoint["args"].get("use_layers", (0, 1, 2, 3, 4)),
     )
     if verbose:
         print(checkpoint["args"])
