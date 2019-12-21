@@ -7,7 +7,7 @@ import torch
 import torchvision.transforms as transforms
 
 from casme.stats import AverageMeter, StatisticsContainer
-from casme.model_basics import casme_load_model, icasme_load_model, get_masks_and_check_predictions
+from casme.model_basics import casme_load_model, get_masks_and_check_predictions
 from casme.utils.torch_utils import ImagePathDataset
 import casme.tasks.imagenet.utils as imagenet_utils
 
@@ -56,8 +56,6 @@ def main(args: RunConfiguration):
         model = {'special': 'center'}
     elif args.mode == "casme":
         model = casme_load_model(args.casm_path, classifier_load_mode=args.classifier_load_mode)
-    elif args.mode == "icasme":
-        model = icasme_load_model(args.casm_path)
     else:
         raise KeyError(args.mode)
 

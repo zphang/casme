@@ -83,32 +83,6 @@ def casme_load_model(casm_path, classifier_load_mode="pickled", verbose=True):
     return {'classifier': classifier, 'masker': masker, 'name': name, 'checkpoint': checkpoint}
 
 
-def icasme_load_model(casm_path):
-    name = casm_path.split('/')[-1].replace('.chk', '')
-
-    print("\n=> Loading model localized in '{}'".format(casm_path))
-    classifier = archs.resnet50shared()
-    checkpoint = torch.load(casm_path)
-
-    classifier.load_state_dict(checkpoint['state_dict_classifier'])
-    classifier.eval().to(device)
-
-    masker = archs.default_masker(
-        add_prob_layers=getattr(checkpoint["args"], "add_prob_layers", None)
-    )
-    print(checkpoint["args"])
-    masker.load_state_dict(checkpoint['state_dict_masker'])
-    masker.eval().to(device)
-    print("=> Model loaded.")
-
-    infiller = archs.get_infiller(checkpoint.get("infiller_model", "cnn"))
-    infiller.load_state_dict(checkpoint['state_dict_infiller'])
-    infiller.eval().to(device)
-
-    return {'classifier': classifier, 'masker': masker, 'infiller': infiller,
-            'name': name}
-
-
 def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0):
     with torch.no_grad():
         input_, target = input_.clone(), target.clone()

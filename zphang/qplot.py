@@ -1,7 +1,7 @@
 import os
 
 from zphang import utils
-from casme.tasks.imagenet import plot_casme, plot_icasme
+from casme.tasks.imagenet import plot_casme
 
 import zconf
 
@@ -26,14 +26,6 @@ def main(args):
             plots_path=plots_path,
         )
         plot_casme.main(plot_casme_args)
-    elif args.mode == "icasme":
-        plot_icasme_args = plot_icasme.RunConfiguration(
-            val_json=val_json,
-            bboxes_path="/gpfs/data/geraslab/zphang/working/190624_new_casme/imagenet_annotation.json",
-            casm_path=best_casm_path,
-            plots_path=plots_path,
-        )
-        plot_icasme.main(plot_icasme_args)
     else:
         raise KeyError(args.mode)
 
