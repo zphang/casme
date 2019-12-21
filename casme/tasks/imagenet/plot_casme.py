@@ -10,7 +10,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from casme.model_basics import casme_load_model
 from casme.utils.torch_utils import ImagePathDataset
-from casme.casme_utils import get_binarized_mask, get_masked_images, permute_image
+from casme.casme_utils import get_binarized_mask, get_masked_images
 import casme.tasks.imagenet.utils as imagenet_utils
 import casme.core as core
 import casme.archs as archs

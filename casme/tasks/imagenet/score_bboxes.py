@@ -12,6 +12,7 @@ from casme.utils.torch_utils import ImagePathDataset
 import casme.tasks.imagenet.utils as imagenet_utils
 
 import zconf
+import pyutils.io as io
 
 
 @zconf.run_config
@@ -60,8 +61,7 @@ def main(args: RunConfiguration):
     else:
         raise KeyError(args.mode)
 
-    with open(args.bboxes_path, "r") as f:
-        bboxes = json.loads(f.read())
+    bboxes = io.read_json(args.bboxes_path)
 
     results = score(
         args=args,

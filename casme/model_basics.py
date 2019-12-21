@@ -6,6 +6,8 @@ import torch
 
 from casme import archs
 from casme.criterion import MaskFunc, default_infill_func
+from dataclasses import dataclass
+from typing import Union
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -21,6 +23,14 @@ MODEL_PARAMETERS = {
     "block_strides_list": [1, 2, 2, 2],
     "block_fn": "bottleneck",
 }
+
+
+@dataclass
+class BoxCoords:
+    xmin: Union[int, np.ndarray]
+    xmax: Union[int, np.ndarray]
+    ymin: Union[int, np.ndarray]
+    ymax: Union[int, np.ndarray]
 
 
 def casme_load_model(casm_path, classifier_load_mode="pickled", verbose=True):
@@ -99,29 +109,36 @@ def icasme_load_model(casm_path):
             'name': name}
 
 
-def get_masks_and_check_predictions(input, target, model, erode_k=0, dilate_k=0):
+def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0):
     with torch.no_grad():
-        input, target = input.clone(), target.clone()
-        mask, output = get_mask(input, model, get_output=True)
+        input_, target = input_.clone(), target.clone()
+        mask, output = get_mask(input_, model, get_output=True)
 
-        rectangular = binarize_mask(mask.clone())
+        binarized_mask = binarize_mask(mask.clone())
+        rectangular = torch.empty_like(binarized_mask)
+        box_coord_ls = []
 
-        for id in range(mask.size(0)):
-            if rectangular[id].sum() == 0:
+        for idx in range(mask.size(0)):
+            if binarized_mask[idx].sum() == 0:
                 continue
 
-            m = rectangular[id].squeeze().cpu().numpy()
+            m = binarized_mask[idx].squeeze().cpu().numpy()
             if erode_k != 0:
                 m = binary_erosion(m, iterations=erode_k, border_value=1)
             if dilate_k != 0:
                 m = binary_dilation(m, iterations=dilate_k)
-            rectangular[id] = get_rectangular_mask(m)
+            rectangular[idx], box_coords = get_rectangular_mask(m)
+            box_coord_ls.append(box_coords)
 
         target = target.to(device)
         _, max_indexes = output.data.max(1)
-        isCorrect = target.eq(max_indexes)
+        is_correct = target.eq(max_indexes)
 
-        return mask.squeeze().cpu().numpy(), rectangular.squeeze().cpu().numpy(), isCorrect.cpu().numpy() 
+        return (
+            mask.squeeze().cpu().numpy(),
+            rectangular.squeeze().cpu().numpy(),
+            is_correct.cpu().numpy(),
+        )
 
 
 def get_mask(input_, model, use_p=None, class_ids=None, get_output=False):
@@ -171,7 +188,12 @@ def get_bounding_box(m):
         box_mask = torch.zeros(224, 224).to(device)
         box_mask[xmin:xmax+1, ymin:ymax+1] = 1
 
-        return box_mask
+    box_coords = BoxCoords(
+        xmin=xmin, xmax=xmax,
+        ymin=ymin, ymax=ymax,
+    )
+
+    return box_mask, box_coords
 
 
 def get_rectangular_mask(m):
