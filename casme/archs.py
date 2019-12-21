@@ -387,14 +387,15 @@ class ClassInputModule(nn.Module):
         return embedded
 
 
-def binary_gumbel_softmax(logits, tau=1.0, hard=False):
+def binary_gumbel_softmax(logits, tau=0.1, hard=False):
     # see: F.gumbel_softmax
-    gumbels = -torch.empty_like(logits).exponential_().log()  # ~Gumbel(0,1)
-    gumbels = (logits + gumbels) / tau  # ~Gumbel(logits,tau)
-    y_soft = torch.sigmoid(gumbels)
+    gumbels_0 = -torch.empty_like(logits).exponential_().log()  # ~Gumbel(0,1)
+    gumbels_1 = -torch.empty_like(logits).exponential_().log()  # ~Gumbel(0,1)
+    mod_logits = (logits + gumbels_1) / tau  # ~Gumbel(logits,tau)
+    y_soft = torch.sigmoid(mod_logits)
 
     if hard:
-        y_hard = (y_soft > 0.5).float()
+        y_hard = (logits + gumbels_1 > gumbels_0).detach().float()
         ret = y_hard - y_soft.detach() + y_soft
     else:
         # Reparametrization trick.
@@ -403,23 +404,42 @@ def binary_gumbel_softmax(logits, tau=1.0, hard=False):
 
 
 class GumbelFinal(nn.Module):
-    def __init__(self, in_channels, out_channels, tau=0.1, final_upsample_mode="nearest"):
+    def __init__(self, in_channels, out_channels, tau=0.1, final_upsample_mode="nearest",
+                 gumbel_output_mode="hard",
+                 ):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.tau = tau
+        if isinstance(tau, (float, int)):
+            self.tau = tau
+        elif tau == -1:
+            # clean this up
+            self.tau = nn.Parameter(torch.tensor([0.1]))
+        else:
+            raise KeyError(tau)
         self.final_upsample_mode = final_upsample_mode
+
+        self.gumbel_output_mode = gumbel_output_mode
 
         self.conv = nn.Conv2d(
             in_channels, out_channels,
             kernel_size=3, stride=1, padding=1, bias=True,
         )
-        self.upsample = Upsample(scale_factor=4, mode=final_upsample_mode),
+        self.upsample = Upsample(scale_factor=4, mode=final_upsample_mode)
 
     def forward(self, x):
         h = self.conv(x)
-        h = h.permute(0, 2, 3, 1)
-        h = binary_gumbel_softmax(h, tau=self.tau, hard=True)
+        n_dim, c_dim, h_dim, w_dim = h.shape
+        h = h.view(n_dim, h_dim, w_dim)
+        if self.gumbel_output_mode in ("hard", "soft"):
+            h = binary_gumbel_softmax(h, tau=self.tau, hard=self.gumbel_output_mode == "hard")
+        elif self.gumbel_output_mode == "sigmoid":
+            h = torch.sigmoid(h)
+        elif self.gumbel_output_mode == "logits":
+            pass
+        else:
+            raise KeyError(self.gumbel_output_mode)
+        h = h.view(n_dim, c_dim, h_dim, w_dim)
         h = self.upsample(h)
         return h
 
@@ -431,7 +451,8 @@ class Masker(nn.Module):
                  add_prob_layers=False,
                  add_class_ids=False,
                  apply_gumbel=False,
-                 apply_gumbel_tau=0.1
+                 apply_gumbel_tau=0.1,
+                 gumbel_output_mode="hard",
                  ):
         super().__init__()
         self.final_upsample_mode = final_upsample_mode
@@ -439,6 +460,7 @@ class Masker(nn.Module):
         self.add_class_ids = add_class_ids
         self.apply_gumbel = apply_gumbel
         self.apply_gumbel_tau = apply_gumbel_tau
+        self.gumbel_output_mode = gumbel_output_mode
 
         more_dims = 0
         if self.add_prob_layers:
@@ -470,12 +492,13 @@ class Masker(nn.Module):
 
     def _get_final_layer(self, in_channels, out_channels):
         if self.apply_gumbel:
-            print(f"Using gumbel softmax with tau={self.tau}")
+            print(f"Using gumbel softmax with tau={self.apply_gumbel_tau}")
             final = GumbelFinal(
                 in_channels=in_channels,
                 out_channels=out_channels,
                 tau=self.apply_gumbel_tau,
                 final_upsample_mode=self.final_upsample_mode,
+                gumbel_output_mode=self.gumbel_output_mode,
             )
         else:
             final = nn.Sequential(

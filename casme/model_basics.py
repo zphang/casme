@@ -23,10 +23,11 @@ MODEL_PARAMETERS = {
 }
 
 
-def casme_load_model(casm_path, classifier_load_mode="pickled"):
+def casme_load_model(casm_path, classifier_load_mode="pickled", verbose=True):
     name = casm_path.split('/')[-1].replace('.chk', '')
 
-    print("\n=> Loading model from '{}'".format(casm_path))
+    if verbose:
+        print("\n=> Loading model from '{}'".format(casm_path))
     checkpoint = torch.load(casm_path)
 
     if classifier_load_mode == "pickled":
@@ -44,19 +45,25 @@ def casme_load_model(casm_path, classifier_load_mode="pickled"):
     if not isinstance(checkpoint["args"], dict):
         checkpoint["args"] = checkpoint["args"].__dict__
     masker = archs.default_masker(
+        final_upsample_mode=checkpoint["args"].get("final_upsample_mode", "nearest"),
         add_prob_layers=checkpoint["args"].get("add_prob_layers", None),
         add_class_ids=checkpoint["args"].get("add_class_ids", None),
+        apply_gumbel=checkpoint["args"].get("apply_gumbel", None),
+        apply_gumbel_tau=checkpoint["args"].get("apply_gumbel_tau", None),
     )
-    print(checkpoint["args"])
+    if verbose:
+        print(checkpoint["args"])
     if 'state_dict_masker' in checkpoint:
         masker.load_state_dict(checkpoint['state_dict_masker'])
     elif 'state_dict_decoder' in checkpoint:
         masker.load_state_dict(checkpoint['state_dict_decoder'])
-        print("Using old format")
+        if verbose:
+            print("Using old format")
     else:
         raise KeyError()
     masker.eval().to(device)
-    print("=> Model loaded.")
+    if verbose:
+        print("=> Model loaded.")
 
     return {'classifier': classifier, 'masker': masker, 'name': name, 'checkpoint': checkpoint}
 

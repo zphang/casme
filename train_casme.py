@@ -84,6 +84,7 @@ class RunConfiguration(zconf.RunConfig):
     add_class_ids = zconf.attr(action='store_true')
     apply_gumbel = zconf.attr(action='store_true')
     apply_gumbel_tau = zconf.attr(default=0.1, type=float)
+    gumbel_output_mode = zconf.attr(default="hard", type=str)
 
     # Placeholders
     casms_path = zconf.attr(default='')
@@ -122,7 +123,8 @@ def main(args):
         add_prob_layers=args.add_prob_layers,
         add_class_ids=args.add_class_ids,
         apply_gumbel=args.apply_gumbel,
-        apply_gumbel_tau=args.apply_gumbel_tau
+        apply_gumbel_tau=args.apply_gumbel_tau,
+        gumbel_output_mode=args.gumbel_output_mode,
     ).to(device)
     classifier_optimizer = torch.optim.SGD(
         classifier.parameters(), args.lr,
