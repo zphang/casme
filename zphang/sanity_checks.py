@@ -70,7 +70,8 @@ def main(args: RunConfiguration):
         print(plot_base_path)
 
         input_ = input_.to(device)
-        continuous, rectangular, is_correct = get_masks_and_check_predictions(input_, target, model)
+        continuous, rectangular, is_correct, bboxes = \
+            get_masks_and_check_predictions(input_, target, model)
         gold_continuous = continuous
         scores = get_scores(gold_continuous, continuous, reduce=False)
         if args.do_plot:
@@ -98,7 +99,8 @@ def main(args: RunConfiguration):
                 desc="cascading")):
             if layer_name not in all_results_dict["cascading"]:
                 all_results_dict["cascading"][layer_name] = {}
-            continuous, rectangular, is_correct = get_masks_and_check_predictions(input_, target, model)
+            continuous, rectangular, is_correct, bboxes = \
+                get_masks_and_check_predictions(input_, target, model)
             add_scores(
                 d=all_results_dict["cascading"][layer_name],
                 new_d=get_scores(gold_continuous, continuous, reduce=False)
@@ -119,7 +121,8 @@ def main(args: RunConfiguration):
                 desc="independent")):
             if layer_name not in all_results_dict["independent"]:
                 all_results_dict["independent"][layer_name] = {}
-            continuous, rectangular, is_correct = get_masks_and_check_predictions(input_, target, model)
+            continuous, rectangular, is_correct, bboxes = \
+                get_masks_and_check_predictions(input_, target, model)
             add_scores(
                 d=all_results_dict["independent"][layer_name],
                 new_d=get_scores(gold_continuous, continuous, reduce=False)

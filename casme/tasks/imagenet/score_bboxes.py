@@ -107,7 +107,8 @@ def score(args, model, data_loader, bboxes):
             else:
                 raise KeyError(model["special"])
         else:
-            continuous, rectangular, is_correct = get_masks_and_check_predictions(input_, target, model)
+            continuous, rectangular, is_correct, bboxes = \
+                get_masks_and_check_predictions(input_, target, model)
 
         # update statistics
         statistics.update(torch.tensor(continuous).unsqueeze(1))
