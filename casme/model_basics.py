@@ -32,6 +32,26 @@ class BoxCoords:
     ymin: Union[int, np.ndarray]
     ymax: Union[int, np.ndarray]
 
+    @property
+    def xslice(self):
+        return slice(self.xmin, self.xmax + 1)
+
+    @property
+    def yslice(self):
+        return slice(self.ymin, self.ymax + 1)
+
+    @property
+    def width(self):
+        return self.xmax + 1 - self.xmin
+
+    @property
+    def height(self):
+        return self.ymax + 1 - self.ymin
+
+    @property
+    def area(self):
+        return self.width * self.height
+
 
 def casme_load_model(casm_path, classifier_load_mode="pickled", verbose=True):
     name = casm_path.split('/')[-1].replace('.chk', '')
@@ -112,6 +132,7 @@ def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0
             mask.squeeze().cpu().numpy(),
             rectangular.squeeze().cpu().numpy(),
             is_correct.cpu().numpy(),
+            box_coord_ls,
         )
 
 

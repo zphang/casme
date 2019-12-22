@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 import os
 import json
@@ -13,6 +14,8 @@ import casme.tasks.imagenet.utils as imagenet_utils
 
 import zconf
 import pyutils.io as io
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 @zconf.run_config
@@ -83,6 +86,7 @@ def score(args, model, data_loader, bboxes):
     f1a_meter = AverageMeter()
     le_meter = AverageMeter()
     om_meter = AverageMeter()
+    sm_meter = AverageMeter()
     statistics = StatisticsContainer()
 
     end = time.time()
@@ -107,7 +111,7 @@ def score(args, model, data_loader, bboxes):
             else:
                 raise KeyError(model["special"])
         else:
-            continuous, rectangular, is_correct, bboxes = \
+            continuous, rectangular, is_correct, bbox_coords = \
                 get_masks_and_check_predictions(input_, target, model)
 
         # update statistics
@@ -130,6 +134,14 @@ def score(args, model, data_loader, bboxes):
             f1a_meter.update(np.array(f1s_for_image).mean())
             le_meter.update(1 - np.array(ious_for_image).max())
             om_meter.update(1 - (np.array(ious_for_image).max() * is_correct[idx]))
+        saliency_metric = compute_saliency_metric(
+            input_=input_,
+            target=target,
+            bbox_coords=bbox_coords,
+            classifier=model["classifier"],
+        )
+        for sm in saliency_metric:
+            sm_meter.update(sm)
 
         # measure elapsed time
         batch_time += time.time() - end
@@ -163,7 +175,9 @@ def score(args, model, data_loader, bboxes):
         'F1': f1_meter.avg,
         'F1a': f1a_meter.avg,
         'OM': om_meter.avg,
-        'LE': le_meter.avg, **statistics.get_dictionary()
+        'LE': le_meter.avg,
+        'SM': sm_meter.avg,
+        **statistics.get_dictionary(),
     }
     return results
 
@@ -232,6 +246,32 @@ def compute_iou(m, gt_box, gt_box_size):
     with torch.no_grad():
         intersection = (m*gt_box).sum()
         return intersection / (m.sum() + gt_box_size - intersection)
+
+
+def compute_saliency_metric(input_, target, bbox_coords, classifier):
+    resized_sliced_input_ls = []
+    area_ls = []
+    for i, bbox in enumerate(bbox_coords):
+        sliced_input_single = imagenet_utils.tensor_to_image_arr(input_[i, :, bbox.xslice, bbox.yslice])
+        if bbox.area > 0:
+            resized_sliced_input_single = cv2.resize(
+                sliced_input_single,
+                (224, 224),
+                interpolation=cv2.INTER_CUBIC,
+            )
+        else:
+            resized_sliced_input_single = np.zeros([224, 224])
+        area_ls.append(bbox.area)
+        resized_sliced_input_ls.append(resized_sliced_input_single)
+    resized_input = torch.tensor(np.moveaxis(np.array(resized_sliced_input_ls), 3, 1)).float()
+    with torch.no_grad():
+        cropped_upscaled_yhat = classifier(resized_input.to(device), return_intermediate=False)
+    term_1 = (torch.tensor(area_ls).float() / (224 * 224)).clamp(0.05, 1).log()
+    term_2 = torch.softmax(cropped_upscaled_yhat, dim=-1).detach().cpu()[
+        torch.arange(cropped_upscaled_yhat.size(0)), target].log()
+    saliency_metric = (term_1 - term_2).numpy()
+    # Note: not reduced
+    return saliency_metric
 
 
 if __name__ == '__main__':
