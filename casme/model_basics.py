@@ -110,10 +110,11 @@ def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0
 
         binarized_mask = binarize_mask(mask.clone())
         rectangular = torch.empty_like(binarized_mask)
-        box_coord_ls = []
+        box_coord_ls = [BoxCoords(0, 0, 0, 0)] * len(input_)
 
         for idx in range(mask.size(0)):
             if binarized_mask[idx].sum() == 0:
+                box_coord_ls.append(BoxCoords(0, 0, 0, 0))
                 continue
 
             m = binarized_mask[idx].squeeze().cpu().numpy()
@@ -121,8 +122,7 @@ def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0
                 m = binary_erosion(m, iterations=erode_k, border_value=1)
             if dilate_k != 0:
                 m = binary_dilation(m, iterations=dilate_k)
-            rectangular[idx], box_coords = get_rectangular_mask(m)
-            box_coord_ls.append(box_coords)
+            rectangular[idx], box_coord_ls[idx] = get_rectangular_mask(m)
 
         target = target.to(device)
         _, max_indexes = output.data.max(1)

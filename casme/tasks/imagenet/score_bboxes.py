@@ -110,6 +110,7 @@ def score(args, model, data_loader, bboxes):
                 rectangular = continuous
             else:
                 raise KeyError(model["special"])
+            bbox_coords = None
         else:
             continuous, rectangular, is_correct, bbox_coords = \
                 get_masks_and_check_predictions(input_, target, model)
