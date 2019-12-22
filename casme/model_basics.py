@@ -52,6 +52,14 @@ class BoxCoords:
     def area(self):
         return self.width * self.height
 
+    def clamp(self, vmin, vmax):
+        return BoxCoords(
+            xmin=np.clip(self.xmin, vmin, vmax),
+            xmax=np.clip(self.xmax, vmin, vmax),
+            ymin=np.clip(self.ymin, vmin, vmax),
+            ymax=np.clip(self.ymax, vmin, vmax),
+        )
+
     @classmethod
     def from_dict(cls, d):
         return cls(

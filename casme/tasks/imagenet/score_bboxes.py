@@ -93,6 +93,8 @@ def score(args, model, data_loader, bboxes, original_classifier):
     le_meter = AverageMeter()
     om_meter = AverageMeter()
     sm_meter = AverageMeter()
+    sm1_meter = AverageMeter()
+    sm2_meter = AverageMeter()
     statistics = StatisticsContainer()
 
     end = time.time()
@@ -153,7 +155,7 @@ def score(args, model, data_loader, bboxes, original_classifier):
             om_meter.update(1 - (np.array(ious_for_image).max() * is_correct[idx]))
 
         if model.get('special') == 'ground_truth':
-            saliency_metric = compute_saliency_metric_ground_truth(
+            saliency_metric, sm1_ls, sm2_ls = compute_saliency_metric_ground_truth(
                 input_=input_,
                 target=target,
                 bboxes=bboxes,
@@ -161,15 +163,17 @@ def score(args, model, data_loader, bboxes, original_classifier):
                 classifier=original_classifier,
             )
         else:
-            saliency_metric = compute_saliency_metric(
+            saliency_metric, sm1_ls, sm2_ls = compute_saliency_metric(
                 input_=input_,
                 target=target,
                 bbox_coords=bbox_coords,
                 classifier=original_classifier,
             )
         print(saliency_metric.mean())
-        for sm in saliency_metric:
+        for sm, sm1, sm2 in zip(saliency_metric, sm1_ls, sm2_ls):
             sm_meter.update(sm)
+            sm1_meter.update(sm1)
+            sm2_meter.update(sm2)
 
         # measure elapsed time
         batch_time += time.time() - end
@@ -184,10 +188,13 @@ def score(args, model, data_loader, bboxes, original_classifier):
                   'F1a {F1a.avg:.3f} ({F1a.val:.3f})\t'
                   'OM {OM.avg:.3f} ({OM.val:.3f})\t'
                   'LE {LE.avg:.3f} ({LE.val:.3f})\n'
-                  'SM {SM.avg:.3f} ({SM.val:.3f})'
+                  'SM {SM.avg:.3f} ({SM.val:.3f})\t'
+                  'SM1 {SM1.avg:.3f} ({SM1.val:.3f})\t'
+                  'SM2 {SM2.avg:.3f} ({SM2.val:.3f})\t'
                   ''.format(
                       i, len(data_loader), batch_time=batch_time, data_time=data_time,
-                      F1=f1_meter, F1a=f1a_meter, OM=om_meter, LE=le_meter, SM=sm_meter), flush=True)
+                      F1=f1_meter, F1a=f1a_meter, OM=om_meter, LE=le_meter, SM=sm_meter,
+                      SM1=sm1_meter, SM2=sm2_meter), flush=True)
             statistics.print_out()
 
     print('Final:\t'
@@ -197,10 +204,12 @@ def score(args, model, data_loader, bboxes, original_classifier):
           'F1a {F1a.avg:.3f} ({F1a.val:.3f})\t'
           'OM {OM.avg:.3f} ({OM.val:.3f})\t'
           'LE {LE.avg:.3f} ({LE.val:.3f})\n'
-          'SM {SM.avg:.3f} ({SM.val:.3f})'
+          'SM {SM.avg:.3f} ({SM.val:.3f})\t'
+          'SM1 {SM1.avg:.3f} ({SM1.val:.3f})\t'
+          'SM2 {SM2.avg:.3f} ({SM2.val:.3f})\t'
           ''.format(
                 batch_time=batch_time, data_time=data_time, F1=f1_meter, F1a=f1a_meter, OM=om_meter,
-                LE=le_meter, SM=sm_meter), flush=True)
+                LE=le_meter, SM=sm_meter, SM1=sm1_meter, SM2=sm2_meter), flush=True)
     statistics.print_out()
 
     results = {
@@ -242,8 +251,10 @@ def get_loc_scores(bbox, continuous_mask, rectangular_mask):
     if bbox.area == 0:
         return 0, 0
 
+    truncated_bbox = bbox.clamp(0, 223)
+
     gt_box = np.zeros((224, 224))
-    gt_box[bbox.yslice, bbox.xslice] = 1
+    gt_box[truncated_bbox.yslice, truncated_bbox.xslice] = 1
 
     f1 = compute_f1(continuous_mask, gt_box, bbox.area)
     iou = compute_iou(rectangular_mask, gt_box, bbox.area)
@@ -293,12 +304,12 @@ def compute_saliency_metric(input_, target, bbox_coords, classifier):
     resized_input = torch.tensor(np.moveaxis(np.array(resized_sliced_input_ls), 3, 1)).float()
     with torch.no_grad():
         cropped_upscaled_yhat = classifier(resized_input.to(device), return_intermediate=False)
-    term_1 = (torch.tensor(area_ls).float() / (224 * 224)).clamp(0.05, 1).log()
+    term_1 = (torch.tensor(area_ls).float() / (224 * 224)).clamp(0.05, 1).log().numpy()
     term_2 = torch.softmax(cropped_upscaled_yhat, dim=-1).detach().cpu()[
-        torch.arange(cropped_upscaled_yhat.size(0)), target].log()
-    saliency_metric = (term_1 - term_2).numpy()
+        torch.arange(cropped_upscaled_yhat.size(0)), target].log().numpy()
+    saliency_metric = term_1 - term_2
     # Note: not reduced
-    return saliency_metric
+    return saliency_metric, term_1, term_2
 
 
 def compute_saliency_metric_ground_truth(input_, target, bboxes, paths, classifier):
@@ -341,7 +352,6 @@ def compute_saliency_metric_ground_truth(input_, target, bboxes, paths, classifi
 def get_image_bboxes(bboxes_dict, path):
     ls = []
     for bbox in bboxes_dict[os.path.basename(path).split('.')[0]]:
-        bbox = {k: np.clip(v, 0, 223) for k, v in bbox.items()}
         ls.append(BoxCoords.from_dict(bbox))
     return ls
 
