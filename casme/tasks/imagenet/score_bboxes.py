@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import os
+import pandas as pd
 import json
 import time
 
@@ -8,9 +9,10 @@ import torch
 import torchvision.transforms as transforms
 
 from casme.stats import AverageMeter, StatisticsContainer
-from casme.model_basics import casme_load_model, get_masks_and_check_predictions
+from casme.model_basics import casme_load_model, get_masks_and_check_predictions, BoxCoords
 from casme.utils.torch_utils import ImagePathDataset
 import casme.tasks.imagenet.utils as imagenet_utils
+from casme import archs
 
 import zconf
 import pyutils.io as io
@@ -21,7 +23,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 @zconf.run_config
 class RunConfiguration(zconf.RunConfig):
     val_json = zconf.attr(help='train_json path')
-    mode = zconf.attr(type="str")
+    mode = zconf.attr(type=str)
     bboxes_path = zconf.attr(help='path to bboxes_json')
     casm_path = zconf.attr(help='model_checkpoint')
     classifier_load_mode = zconf.attr(default="pickled")
@@ -51,12 +53,15 @@ def main(args: RunConfiguration):
         ),
         batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=False
     )
+    original_classifier = archs.resnet50shared(pretrained=True).eval().to(device)
 
     # get score for special cases
     if args.mode == "max":
-        model = {'special': 'max'}
+        model = {'special': 'max', 'classifier': original_classifier}
     elif args.mode == "center":
-        model = {'special': 'center'}
+        model = {'special': 'center', 'classifier': original_classifier}
+    elif args.mode == "ground_truth":
+        model = {'special': 'ground_truth', 'classifier': original_classifier}
     elif args.mode == "casme":
         model = casme_load_model(args.casm_path, classifier_load_mode=args.classifier_load_mode)
     else:
@@ -69,13 +74,14 @@ def main(args: RunConfiguration):
         model=model,
         data_loader=data_loader,
         bboxes=bboxes,
+        original_classifier=original_classifier,
     )
 
     with open(args.output_path, "w") as f:
         f.write(json.dumps(results, indent=2))
 
 
-def score(args, model, data_loader, bboxes):
+def score(args, model, data_loader, bboxes, original_classifier):
     if 'special' in model.keys():
         print("=> Special mode evaluation: {}.".format(model['special']))
 
@@ -104,13 +110,18 @@ def score(args, model, data_loader, bboxes):
             if model['special'] == 'max':
                 continuous = np.ones((args.batch_size, 224, 224))
                 rectangular = continuous
+                bbox_coords = [BoxCoords(0, 223, 0, 223)] * len(target)
             elif model['special'] == 'center':
                 continuous = np.zeros((args.batch_size, 224, 224))
-                continuous[:, :, 33:-33, 33:-33] = 1
+                continuous[:, 33:-33, 33:-33] = 1
                 rectangular = continuous
+                bbox_coords = [BoxCoords(33, 224-33, 33, 224-33)] * len(target)
+            elif model['special'] == 'ground_truth':
+                # Special handling later
+                rectangular = continuous = np.zeros((args.batch_size, 224, 224))
+                bbox_coords = [None] * len(target)
             else:
                 raise KeyError(model["special"])
-            bbox_coords = None
         else:
             continuous, rectangular, is_correct, bbox_coords = \
                 get_masks_and_check_predictions(input_, target, model)
@@ -120,13 +131,18 @@ def score(args, model, data_loader, bboxes):
 
         # image loop
         for idx, path in enumerate(paths):
-            gt_boxes = bboxes[os.path.basename(path).split('.')[0]]
+            gt_boxes = get_image_bboxes(bboxes_dict=bboxes, path=path)
 
             # compute localization metrics
             f1s_for_image = []
             ious_for_image = []
             for gt_box in gt_boxes:
-                f1_for_box, iou_for_box = get_loc_scores(gt_box, continuous[idx], rectangular[idx])
+                if model.get('special') == 'ground_truth':
+                    gt_mask = np.zeros([224, 224])
+                    gt_mask[gt_box.yslice, gt_box.xslice] = 1
+                    f1_for_box, iou_for_box = get_loc_scores(gt_box, gt_mask, gt_mask)
+                else:
+                    f1_for_box, iou_for_box = get_loc_scores(gt_box, continuous[idx], rectangular[idx])
 
                 f1s_for_image.append(f1_for_box)
                 ious_for_image.append(iou_for_box)
@@ -135,12 +151,23 @@ def score(args, model, data_loader, bboxes):
             f1a_meter.update(np.array(f1s_for_image).mean())
             le_meter.update(1 - np.array(ious_for_image).max())
             om_meter.update(1 - (np.array(ious_for_image).max() * is_correct[idx]))
-        saliency_metric = compute_saliency_metric(
-            input_=input_,
-            target=target,
-            bbox_coords=bbox_coords,
-            classifier=model["classifier"],
-        )
+
+        if model.get('special') == 'ground_truth':
+            saliency_metric = compute_saliency_metric_ground_truth(
+                input_=input_,
+                target=target,
+                bboxes=bboxes,
+                paths=paths,
+                classifier=original_classifier,
+            )
+        else:
+            saliency_metric = compute_saliency_metric(
+                input_=input_,
+                target=target,
+                bbox_coords=bbox_coords,
+                classifier=original_classifier,
+            )
+        print(saliency_metric.mean())
         for sm in saliency_metric:
             sm_meter.update(sm)
 
@@ -156,9 +183,11 @@ def score(args, model, data_loader, bboxes):
                   'F1 {F1.avg:.3f} ({F1.val:.3f})\t'
                   'F1a {F1a.avg:.3f} ({F1a.val:.3f})\t'
                   'OM {OM.avg:.3f} ({OM.val:.3f})\t'
-                  'LE {LE.avg:.3f} ({LE.val:.3f})'.format(
+                  'LE {LE.avg:.3f} ({LE.val:.3f})\n'
+                  'SM {SM.avg:.3f} ({SM.val:.3f})'
+                  ''.format(
                       i, len(data_loader), batch_time=batch_time, data_time=data_time,
-                      F1=f1_meter, F1a=f1a_meter, OM=om_meter, LE=le_meter), flush=True)
+                      F1=f1_meter, F1a=f1a_meter, OM=om_meter, LE=le_meter, SM=sm_meter), flush=True)
             statistics.print_out()
 
     print('Final:\t'
@@ -167,9 +196,11 @@ def score(args, model, data_loader, bboxes):
           'F1 {F1.avg:.3f} ({F1.val:.3f})\t'
           'F1a {F1a.avg:.3f} ({F1a.val:.3f})\t'
           'OM {OM.avg:.3f} ({OM.val:.3f})\t'
-          'LE {LE.avg:.3f} ({LE.val:.3f})'.format(
+          'LE {LE.avg:.3f} ({LE.val:.3f})\n'
+          'SM {SM.avg:.3f} ({SM.val:.3f})'
+          ''.format(
                 batch_time=batch_time, data_time=data_time, F1=f1_meter, F1a=f1a_meter, OM=om_meter,
-                LE=le_meter), flush=True)
+                LE=le_meter, SM=sm_meter), flush=True)
     statistics.print_out()
 
     results = {
@@ -186,9 +217,9 @@ def score(args, model, data_loader, bboxes):
 def compute_agg_loc_scores(gt_boxes, continuous_mask, rectangular_mask, is_correct, include_partial=False):
     f1s_for_image = []
     ious_for_image = []
-    for box in gt_boxes:
+    for bbox in gt_boxes:
         f1_for_box, iou_for_box = get_loc_scores(
-            cor_pos=box,
+            bbox=bbox,
             continuous_mask=continuous_mask,
             rectangular_mask=rectangular_mask,
         )
@@ -207,20 +238,15 @@ def compute_agg_loc_scores(gt_boxes, continuous_mask, rectangular_mask, is_corre
     return result
 
 
-def get_loc_scores(cor_pos, continuous_mask, rectangular_mask):
-    xmin, ymin, xmax, ymax = cor_pos["xmin"], cor_pos["ymin"], cor_pos["xmax"], cor_pos["ymax"]
-    gt_box_size = (xmax - xmin)*(ymax - ymin)
-
-    xmin_c, ymin_c, xmax_c, ymax_c = [clip(z, 0, 224) for z in [xmin, ymin, xmax, ymax]]
-
-    if xmin_c == xmax_c or ymin_c == ymax_c:
+def get_loc_scores(bbox, continuous_mask, rectangular_mask):
+    if bbox.area == 0:
         return 0, 0
 
     gt_box = np.zeros((224, 224))
-    gt_box[ymin_c:ymax_c, xmin_c:xmax_c] = 1
+    gt_box[bbox.yslice, bbox.xslice] = 1
 
-    f1 = compute_f1(continuous_mask, gt_box, gt_box_size)
-    iou = compute_iou(rectangular_mask, gt_box, gt_box_size)
+    f1 = compute_f1(continuous_mask, gt_box, bbox.area)
+    iou = compute_iou(rectangular_mask, gt_box, bbox.area)
 
     return f1, 1*(iou > 0.5)
 
@@ -253,7 +279,7 @@ def compute_saliency_metric(input_, target, bbox_coords, classifier):
     resized_sliced_input_ls = []
     area_ls = []
     for i, bbox in enumerate(bbox_coords):
-        sliced_input_single = imagenet_utils.tensor_to_image_arr(input_[i, :, bbox.xslice, bbox.yslice])
+        sliced_input_single = imagenet_utils.tensor_to_image_arr(input_[i, :, bbox.yslice, bbox.xslice])
         if bbox.area > 0:
             resized_sliced_input_single = cv2.resize(
                 sliced_input_single,
@@ -273,6 +299,51 @@ def compute_saliency_metric(input_, target, bbox_coords, classifier):
     saliency_metric = (term_1 - term_2).numpy()
     # Note: not reduced
     return saliency_metric
+
+
+def compute_saliency_metric_ground_truth(input_, target, bboxes, paths, classifier):
+    # We need this because there are multiple ground truth bounding boxes per image
+    resized_sliced_input_ls = []
+    area_ls = []
+    img_idx_ls = []
+    target_ls = []
+    for i, path in enumerate(paths):
+        for bbox in get_image_bboxes(bboxes, paths[i]):
+            sliced_input_single = imagenet_utils.tensor_to_image_arr(input_[i, :, bbox.yslice, bbox.xslice])
+            if bbox.area > 0:
+                resized_sliced_input_single = cv2.resize(
+                    sliced_input_single,
+                    (224, 224),
+                    interpolation=cv2.INTER_CUBIC,
+                )
+            else:
+                resized_sliced_input_single = np.zeros([224, 224])
+            area_ls.append(bbox.area)
+            resized_sliced_input_ls.append(resized_sliced_input_single)
+            img_idx_ls.append(i)
+            target_ls.append(target[i])
+    resized_input = torch.tensor(np.moveaxis(np.array(resized_sliced_input_ls), 3, 1)).float()
+    with torch.no_grad():
+        cropped_upscaled_yhat = classifier(resized_input.to(device), return_intermediate=False)
+    term_1 = (torch.tensor(area_ls).float() / (224 * 224)).clamp(0.05, 1).log()
+    term_2 = torch.softmax(cropped_upscaled_yhat, dim=-1).detach().cpu()[
+        torch.arange(cropped_upscaled_yhat.size(0)), torch.tensor(target_ls)].log()
+    df = pd.DataFrame({
+        "term_1": term_1.numpy(),
+        "term_2": term_2.numpy(),
+        "img_idx": img_idx_ls,
+    })
+    averaged_within_img_df = df.groupby("img_idx").mean().sort_index()
+    saliency_metric = (averaged_within_img_df["term_1"] - averaged_within_img_df["term_2"]).values
+    return saliency_metric
+
+
+def get_image_bboxes(bboxes_dict, path):
+    ls = []
+    for bbox in bboxes_dict[os.path.basename(path).split('.')[0]]:
+        bbox = {k: np.clip(v, 0, 223) for k, v in bbox.items()}
+        ls.append(BoxCoords.from_dict(bbox))
+    return ls
 
 
 if __name__ == '__main__':

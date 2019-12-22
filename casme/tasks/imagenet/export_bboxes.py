@@ -59,6 +59,8 @@ def resize_pos(raw_pos, width, height, break_ratio):
                     (ratio_x*raw_pos[2] - xcut),
                     (ratio_y*raw_pos[3] - ycut)]
 
+    # The box coordinates returned here are rescaled to apply to a 224x224 image
+    # but NOT clipped, so the coordinates may be negative or >224
     return [int(x) for x in semi_cor_pos]
 
 

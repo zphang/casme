@@ -52,6 +52,15 @@ class BoxCoords:
     def area(self):
         return self.width * self.height
 
+    @classmethod
+    def from_dict(cls, d):
+        return cls(
+            xmin=d["xmin"],
+            xmax=d["xmax"],
+            ymin=d["ymin"],
+            ymax=d["ymax"],
+        )
+
 
 def casme_load_model(casm_path, classifier_load_mode="pickled", verbose=True):
     name = casm_path.split('/')[-1].replace('.chk', '')
@@ -114,7 +123,6 @@ def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0
 
         for idx in range(mask.size(0)):
             if binarized_mask[idx].sum() == 0:
-                box_coord_ls.append(BoxCoords(0, 0, 0, 0))
                 continue
 
             m = binarized_mask[idx].squeeze().cpu().numpy()
@@ -173,20 +181,17 @@ def get_largest_connected(m):
 
 
 def get_bounding_box(m):
-    x = m.any(1)
-    y = m.any(0)
-    xmin = np.argmax(x)
-    xmax = np.argmax(np.cumsum(x))
-    ymin = np.argmax(y)
-    ymax = np.argmax(np.cumsum(y))
+    x = m.any(0)
+    y = m.any(1)
+    box_coords = BoxCoords(
+        xmin=np.argmax(x),
+        xmax=np.argmax(np.cumsum(x)),
+        ymin=np.argmax(y),
+        ymax=np.argmax(np.cumsum(y)),
+    )
     with torch.no_grad():
         box_mask = torch.zeros(224, 224).to(device)
-        box_mask[xmin:xmax+1, ymin:ymax+1] = 1
-
-    box_coords = BoxCoords(
-        xmin=xmin, xmax=xmax,
-        ymin=ymin, ymax=ymax,
-    )
+        box_mask[box_coords.yslice, box_coords.xslice] = 1
 
     return box_mask, box_coords
 
@@ -196,8 +201,8 @@ def get_rectangular_mask(m):
 
 
 def get_pred_bounding_box(rect):
-    raw_x = np.arange(224)[rect.any(axis=0).astype(bool)]
-    raw_y = np.arange(224)[rect.any(axis=1).astype(bool)]
+    raw_y = np.arange(224)[rect.any(axis=0).astype(bool)]
+    raw_x = np.arange(224)[rect.any(axis=1).astype(bool)]
     if len(raw_x) == 0 or len(raw_y) == 0:
         xmin, xmax = 0, 223
         ymin, ymax = 0, 223
