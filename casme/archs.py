@@ -387,15 +387,19 @@ class ClassInputModule(nn.Module):
         return embedded
 
 
-def binary_gumbel_softmax(logits, tau=0.1, hard=False):
+def binary_gumbel_softmax(logits, tau=0.1, hard=False, epsilon=1e-8):
     # see: F.gumbel_softmax
-    gumbels_0 = -torch.empty_like(logits).exponential_().log()  # ~Gumbel(0,1)
-    gumbels_1 = -torch.empty_like(logits).exponential_().log()  # ~Gumbel(0,1)
-    mod_logits = (logits + gumbels_1) / tau  # ~Gumbel(logits,tau)
-    y_soft = torch.sigmoid(mod_logits)
+    #gumbels_0 = -torch.empty_like(logits).exponential_().log()  # ~Gumbel(0,1)
+    #gumbels_1 = -torch.empty_like(logits).exponential_().log()  # ~Gumbel(0,1)
+    #mod_logits = (logits + gumbels_1) / tau  # ~Gumbel(logits,tau)
+
+    uniform_noise = torch.empty_like(logits).uniform_()
+    approx = logits + (uniform_noise + epsilon).log() - (1 - uniform_noise + epsilon).log()
+
+    y_soft = torch.sigmoid(approx / tau)
 
     if hard:
-        y_hard = (logits + gumbels_1 > gumbels_0).detach().float()
+        y_hard = (y_soft > 0.5).detach().float()
         ret = y_hard - y_soft.detach() + y_soft
     else:
         # Reparametrization trick.

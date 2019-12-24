@@ -32,12 +32,12 @@ def tags_to_regex(tag_pattern, format_dict=None, default_format="\\w+"):
     return new_pattern
 
 
-def load_score(path_ls, regex_str, return_df=True):
+def load_score(path_ls, regex_str, return_df=True, filename="score.json"):
     regex = re.compile(regex_str)
     results = []
     for path in path_ls:
         matched = next(regex.finditer(path)).groupdict()
-        score_path = os.path.join(os.path.abspath(os.path.join(path, "..")), "score.json")
+        score_path = os.path.join(os.path.abspath(os.path.join(path, "..")), filename)
         if not os.path.exists(score_path):
             continue
         scores = io.read_json(score_path)

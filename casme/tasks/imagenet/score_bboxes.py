@@ -218,6 +218,8 @@ def score(args, model, data_loader, bboxes, original_classifier):
         'OM': om_meter.avg,
         'LE': le_meter.avg,
         'SM': sm_meter.avg,
+        'SM1': sm1_meter.avg,
+        'SM2': sm2_meter.avg,
         **statistics.get_dictionary(),
     }
     return results
