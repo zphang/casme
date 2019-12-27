@@ -436,7 +436,10 @@ class GumbelFinal(nn.Module):
         n_dim, c_dim, h_dim, w_dim = h.shape
         h = h.view(n_dim, h_dim, w_dim)
         if self.gumbel_output_mode in ("hard", "soft"):
-            h = binary_gumbel_softmax(h, tau=self.tau, hard=self.gumbel_output_mode == "hard")
+            if self.training:
+                h = binary_gumbel_softmax(h, tau=self.tau, hard=self.gumbel_output_mode == "hard")
+            else:
+                h = (h > 0).float()
         elif self.gumbel_output_mode == "sigmoid":
             h = torch.sigmoid(h)
         elif self.gumbel_output_mode == "logits":

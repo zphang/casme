@@ -41,6 +41,7 @@ def load_score(path_ls, regex_str, return_df=True, filename="score.json"):
         if not os.path.exists(score_path):
             continue
         scores = io.read_json(score_path)
+        scores["path"] = path
         results.append(datastructures.combine_dicts([matched, scores]))
     if return_df:
         return pd.DataFrame(results)

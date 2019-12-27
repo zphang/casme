@@ -192,6 +192,7 @@ def main(args):
             prob_sample_high=args.prob_sample_high,
             mask_in_weight=args.mask_in_weight,
             mask_out_weight=args.mask_out_weight,
+            add_class_ids=args.add_class_ids,
             device=device,
             logger=zlog.ZBufferedLogger(
                 fol_path=args.log_path,
