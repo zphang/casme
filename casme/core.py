@@ -291,12 +291,12 @@ class CASMERunner(BaseRunner):
                          log_data
                          ):
         classifier_loss_from_masked_x = (
-                self.mask_in_weight * classifier_loss_from_masked_in_x
-                + self.mask_out_weight * classifier_loss_from_masked_out_x
+            self.mask_in_weight * classifier_loss_from_masked_in_x
+            + self.mask_out_weight * classifier_loss_from_masked_out_x
         )
         masker_total_loss = (
-                self.mask_in_weight * mask_in_loss
-                + self.mask_out_weight * mask_out_loss
+            self.mask_in_weight * mask_in_loss
+            + self.mask_out_weight * mask_out_loss
         )
 
         log_data["masked_total___classifier_loss"] = classifier_loss_from_masked_x.item()
@@ -317,7 +317,7 @@ class CASMERunner(BaseRunner):
 
     @classmethod
     def detach_layers(cls, layers):
-        return [l.detach() for l in layers]
+        return [layer.detach() for layer in layers]
 
 
 class InfillerCASMERunner(CASMERunner):
@@ -340,7 +340,7 @@ class InfillerCASMERunner(CASMERunner):
     def mask_in_x(self, x, mask):
         masked_in_x = super().mask_in_x(x=x, mask=mask)
 
-        if self.do_infill_for_mask_out:
+        if self.do_infill_for_mask_in:
             with torch.set_grad_enabled(self.train_infiller):
                 return infill_masked_in(
                     infiller=self.infiller,
