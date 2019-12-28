@@ -33,6 +33,7 @@ class RunConfiguration(zconf.RunConfig):
                             help='mini-batch size (default: 128)')
     perc_of_training = zconf.attr(default=0.2, type=float,
                                   help='percent of training set seen in each epoch')
+    do_val = zconf.attr(action="store_true")
     lr = zconf.attr(default=0.001, type=float,
                     help='initial learning rate for classifier')
     lr_casme = zconf.attr(default=0.001, type=float,
@@ -251,12 +252,13 @@ def main(args):
             epoch=epoch,
         )
 
-        # evaluate on validation set
-        casme_runner.train_or_eval(
-            data_loader=val_loader,
-            is_train=False,
-            epoch=epoch
-        )
+        if args.do_val:
+            # evaluate on validation set
+            casme_runner.train_or_eval(
+                data_loader=val_loader,
+                is_train=False,
+                epoch=epoch
+            )
 
         # save checkpoint
         save_checkpoint({
