@@ -73,26 +73,33 @@ def get_annotations(data_path, annotation_path, break_ratio):
         if not os.path.isfile(ann_path):
             raise KeyError("Annotations aren't found. Aborting!")
 
-        with open(ann_path) as f:
-            xml = f.readlines()
-        anno = BeautifulSoup(''.join([line.strip('\t') for line in xml]), "html5lib")
-
-        size = anno.findChildren('size')[0]
-        width = int(size.findChildren('width')[0].contents[0])
-        height = int(size.findChildren('height')[0].contents[0])
-
         category = path.split('/')[-2]
-
-        # get ground truth boxes positions in the original resolution
-        gt_boxes = get_ground_truth_boxes(anno, category)
-        # get ground truth boxes positions in the resized resolution
-        gt_boxes = get_resized_pos(gt_boxes, width, height, break_ratio)
-        gt_boxes_dicts = [
-            dict(zip(["xmin", "ymin", "xmax", "ymax"], gt_box))
-            for gt_box in gt_boxes
-        ]
-        bboxes[os.path.basename(path).split(".")[0]] = gt_boxes_dicts
+        bboxes[os.path.basename(path).split(".")[0]] = get_gt_boxes(
+            ann_path=ann_path,
+            category=category,
+            break_ratio=break_ratio,
+        )
     return bboxes
+
+
+def get_gt_boxes(ann_path, category, break_ratio, html_lib="html5lib"):
+    with open(ann_path) as f:
+        xml = f.readlines()
+    anno = BeautifulSoup(''.join([line.strip('\t') for line in xml]), html_lib)
+
+    size = anno.findChildren('size')[0]
+    width = int(size.findChildren('width')[0].contents[0])
+    height = int(size.findChildren('height')[0].contents[0])
+
+    # get ground truth boxes positions in the original resolution
+    gt_boxes = get_ground_truth_boxes(anno, category)
+    # get ground truth boxes positions in the resized resolution
+    gt_boxes = get_resized_pos(gt_boxes, width, height, break_ratio)
+    gt_boxes_dicts = [
+        dict(zip(["xmin", "ymin", "xmax", "ymax"], gt_box))
+        for gt_box in gt_boxes
+    ]
+    return gt_boxes_dicts
 
 
 def get_annotations_and_write(data_path, annotation_path, break_ratio, output_path):
