@@ -142,7 +142,7 @@ def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0
 
         target = target.to(device)
         _, max_indexes = output.data.max(1)
-        is_correct = target.eq(max_indexes)
+        is_correct = target.eq(max_indexes).long()
 
         return (
             mask.squeeze().cpu().numpy(),

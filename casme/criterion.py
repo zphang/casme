@@ -92,7 +92,7 @@ class MaskerCriterion(nn.Module):
                 classifier_loss_from_masked_x, use_p, reduce=True):
         _, max_indexes = y_hat.detach().max(1)
         _, max_indexes_on_masked_x = y_hat_from_masked_x.detach().max(1)
-        correct_on_clean = y.eq(max_indexes)
+        correct_on_clean = y.eq(max_indexes).long()
         metadata = {}
 
         mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
@@ -197,7 +197,7 @@ class MaskerCriterion(nn.Module):
 
         small mask -> large F.relu -> more negative
         """
-        mistaken_on_masked = y.ne(max_indexes_on_masked_x)
+        mistaken_on_masked = y.ne(max_indexes_on_masked_x).long()
         nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
         mask_reg = -self.lambda_r * F.relu(nontrivially_confused - mask_mean)
         mask_reg_mean = mask_reg.mean()
@@ -293,8 +293,8 @@ class MaskerPriorCriterion(nn.Module):
         _, max_indexes = y_hat_is_over_prior.detach().max(1)
         _, max_indexes_on_masked_x = y_hat_from_masked_x_prob_over_prior.detach().max(1)
 
-        correct_on_clean = y.eq(max_indexes)
-        mistaken_on_masked = y.ne(max_indexes_on_masked_x)
+        correct_on_clean = y.eq(max_indexes).long()
+        mistaken_on_masked = y.ne(max_indexes_on_masked_x).long()
         nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
 
         mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
@@ -413,8 +413,8 @@ class MaskerInfillerPriorCriterion(nn.Module):
         _, max_indexes = y_hat_is_over_prior.detach().max(1)
         _, max_indexes_on_modified_x = y_hat_from_modified_x_prob_over_prior.detach().max(1)
 
-        correct_on_clean = y.eq(max_indexes)
-        mistaken_on_masked = y.ne(max_indexes_on_modified_x)
+        correct_on_clean = y.eq(max_indexes).long()
+        mistaken_on_masked = y.ne(max_indexes_on_modified_x).long()
         nontrivially_confused = (correct_on_clean + mistaken_on_masked).eq(2).float()
 
         mask_mean = F.avg_pool2d(mask, 224, stride=1).squeeze()
