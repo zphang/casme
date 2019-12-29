@@ -734,8 +734,8 @@ class DFNInfillerWrapper(nn.Module):
         # masked_x: normalize from [0, 1]
         # mask: 1 = selected region
         # Resize
-        masked_x = F.interpolate(masked_x, 256, mode="bilinear")
-        mask = F.interpolate(mask, 256, mode="bilinear")
+        masked_x = F.interpolate(masked_x, 256, mode="bilinear", align_corners=True)
+        mask = F.interpolate(mask, 256, mode="bilinear", align_corners=True)
 
         # desired input: [0, 1]
         # desired mask: [0, 1], 0 = masked out
@@ -752,7 +752,7 @@ class DFNInfillerWrapper(nn.Module):
         result, alpha, raw = result[0], alpha[0], raw[0]
         result = imgs_miss + result * mask
 
-        result = F.interpolate(result, 224, mode="bilinear")
+        result = F.interpolate(result, 224, mode="bilinear", align_corners=True)
         result = self.iproc.norm_tensor(result)
         return result
 
