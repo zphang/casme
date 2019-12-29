@@ -46,3 +46,8 @@ class ImagePathDataset(VisionDataset):
     @classmethod
     def from_path(cls, config_path, *args, **kwargs):
         return cls(config=io.read_json(config_path), *args, **kwargs)
+
+
+def set_requires_grad(named_parameters, requires_grad):
+    for name, param in named_parameters:
+        param.requires_grad = requires_grad

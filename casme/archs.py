@@ -10,6 +10,7 @@ from casme.ext.pytorch_inpainting_with_partial_conv import PConvUNet, PCBActiv
 from casme.ext.torchray import imsmooth
 import casme.criterion as criterion
 import casme.tasks.imagenet.utils as imagenet_utils
+import casme.utils.torch_utils as torch_utils
 
 
 class Upsample(nn.Module):
@@ -807,40 +808,28 @@ class ImageProc(nn.Module):
 
 def get_infiller(infiller_model):
     if infiller_model == "cnn":
-        return InfillerCNN(
+        infiller = InfillerCNN(
             4, 3, [32, 64, 128, 256],
         )
     elif infiller_model == "ca_infiller":
-        return CAInfillerWrapper(ImageProc(
+        infiller = CAInfillerWrapper(ImageProc(
             mean=imagenet_utils.NORMALIZATION_MEAN,
             std=imagenet_utils.NORMALIZATION_STD,
         ))
     elif infiller_model == "dfn_infiller":
-        return DFNInfillerWrapper(ImageProc(
+        infiller = DFNInfillerWrapper(ImageProc(
             mean=imagenet_utils.NORMALIZATION_MEAN,
             std=imagenet_utils.NORMALIZATION_STD,
         ))
     elif infiller_model == "dummy":
-        return DummyInfiller()
+        infiller = DummyInfiller()
     elif infiller_model == "blur":
-        return BlurInfiller(sigma=20)
+        infiller = BlurInfiller(sigma=20)
     else:
         raise KeyError(infiller_model)
 
-
-def should_train_infiller(infiller_model):
-    if infiller_model == "cnn":
-        return True
-    elif infiller_model == "ca_infiller":
-        return False
-    elif infiller_model == "dfn_infiller":
-        return False
-    elif infiller_model == "dummy":
-        return False
-    elif infiller_model == "blur":
-        return False
-    else:
-        raise KeyError(infiller_model)
+    torch_utils.set_requires_grad(infiller.named_parameters(), False)
+    return infiller
 
 
 def default_masker(**kwargs):
