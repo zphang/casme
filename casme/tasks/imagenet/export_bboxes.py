@@ -21,10 +21,8 @@ def get_ground_truth_boxes(anno, category):
                 ymax = int(bbox.findChildren('ymax')[0].contents[0])
 
                 boxes.append([xmin, ymin, xmax, ymax])
-            else:
-                print("Aborting!")
-                return
 
+    assert len(boxes) > 0
     return boxes
 
 
@@ -82,7 +80,7 @@ def get_annotations(data_path, annotation_path, break_ratio):
     return bboxes
 
 
-def get_gt_boxes(ann_path, category, break_ratio, html_lib="html5lib"):
+def get_gt_boxes(ann_path, category, break_ratio, html_lib="html.parser"):
     with open(ann_path) as f:
         xml = f.readlines()
     anno = BeautifulSoup(''.join([line.strip('\t') for line in xml]), html_lib)
