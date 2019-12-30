@@ -6,12 +6,14 @@ import torch
 import torchvision.transforms as transforms
 
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 from matplotlib.backends.backend_pdf import PdfPages
 
 from casme.model_basics import casme_load_model
 from casme.utils.torch_utils import ImagePathDataset
 from casme.casme_utils import get_binarized_mask, get_masked_images
 import casme.tasks.imagenet.utils as imagenet_utils
+import casme.tasks.imagenet.score_bboxes as score_bboxes
 import casme.core as core
 import casme.archs as archs
 
@@ -22,6 +24,7 @@ import zconf
 @zconf.run_config
 class RunConfiguration(zconf.RunConfig):
     val_json = zconf.attr(help='val_json path')
+    bbox_json = zconf.attr(help="bounding_box path")
     casm_path = zconf.attr(help='model_checkpoint')
     workers = zconf.attr(default=4, type=int, help='number of data loading workers (default: 4)')
     resize = zconf.attr(default=256, type=int, help='resize parameter (default: 256)')
@@ -87,10 +90,12 @@ def main(args: RunConfiguration):
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
                 imagenet_utils.NORMALIZATION,
-            ])
+            ]),
+            return_paths=True,
         ),
         batch_size=args.columns, shuffle=False, num_workers=args.workers, pin_memory=False,
     )
+    bboxes = io.read_json(args.bbox_json) if args.bbox_json else None
 
     model = casme_load_model(args.casm_path)
     infiller = get_infiller(model, device)
@@ -101,17 +106,18 @@ def main(args: RunConfiguration):
 
     img_path_ls = []
     with PdfPages(os.path.join(dir_path, "plots.pdf")) as pdf:
-        for i, (x, _) in enumerate(data_loader):
+        for i, ((x, _), paths) in enumerate(data_loader):
             x = x.to(device)
 
             # === get mask and masked images
             binary_mask, soft_mask = get_binarized_mask(x, model)
-            soft_masked_image = x * soft_mask
+            #   soft_masked_image = x * soft_mask
             masked_in_x, masked_out_x = get_masked_images(x, binary_mask, 0.0)
             infilled_masked_in, infilled_masked_out = get_infilled(
                 infiller=infiller, masked_in_x=masked_in_x, masked_out_x=masked_out_x,
                 binary_mask=binary_mask, x=x,
             )
+            soft_mask_arr = soft_mask.squeeze().cpu().numpy()
 
             # === setup plot
             fig, axes = plt.subplots(6, args.columns, figsize=(10, 10))
@@ -131,7 +137,16 @@ def main(args: RunConfiguration):
                 axes[2, col].imshow(to_plottable(masked_out_x[col]))
                 axes[3, col].imshow(to_plottable(infilled_masked_in[col]))
                 axes[4, col].imshow(to_plottable(infilled_masked_out[col]))
-                axes[5, col].imshow(to_plottable(soft_masked_image[col]))
+                # axes[5, col].imshow(to_plottable(soft_masked_image[col]))
+                axes[5, col].imshow(to_plottable(soft_mask_arr[col]), ymin=0, ymax=1)
+
+                if bboxes:
+                    for bbox in score_bboxes.get_image_bboxes(bboxes, paths[col]):
+                        for row in range(6):
+                            axes[row, col].add_patch(patches.Rectangle(
+                                (bbox.xmin, bbox.ymin),
+                                bbox.width, bbox.height, linewidth=1, edgecolor='r', facecolor='none'
+                            ))
 
             for ax in axes.flatten():
                 ax.set_xticks([])
@@ -142,7 +157,7 @@ def main(args: RunConfiguration):
             axes[2, 0].set_ylabel("Masked Out", fontsize=6)
             axes[3, 0].set_ylabel("Masked In+Infill", fontsize=6)
             axes[4, 0].set_ylabel("Masked Out+Infill", fontsize=6)
-            axes[5, 0].set_ylabel("Soft Masked Out", fontsize=6)
+            axes[5, 0].set_ylabel("Soft Mask", fontsize=6)
 
             file_name = "{}.png".format(i)
             path = os.path.join(dir_path, file_name)
