@@ -2,6 +2,8 @@ import os
 
 import torch
 
+import pyutils.io as io
+
 
 def accuracy(output, target, topk=(1,)):
     with torch.no_grad():
@@ -48,6 +50,7 @@ def set_args(args):
     string_args = ''
     for name in sorted(vars(args)):
         string_args += name + '=' + str(getattr(args, name)) + ', '
+    io.write_json(args.log_path, args.to_dict())
 
 
 def set_reproduction(args):
