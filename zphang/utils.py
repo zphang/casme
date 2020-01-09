@@ -7,8 +7,12 @@ import pyutils.datastructures as datastructures
 import pyutils.io as io
 
 
+def get_all_models(base_path):
+    return sorted(glob.glob("{}/*.chk".format(base_path)))
+
+
 def find_best_model(base_path):
-    path_ls = sorted(glob.glob("{}/*.chk".format(base_path)))
+    path_ls = get_all_models(base_path)
     if len(path_ls) == 1:
         path = path_ls[0]
     else:

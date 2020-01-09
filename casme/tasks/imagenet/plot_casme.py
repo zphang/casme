@@ -35,6 +35,7 @@ class RunConfiguration(zconf.RunConfig):
                        help='number of different plots generated (default: 16, -1 to generate all of them)')
     seed = zconf.attr(default=931001, type=int, help='random seed that is used to select images')
     plots_path = zconf.attr(default='', help='directory for plots')
+    use_p_mode = zconf.attr(default='sample')
 
 
 def get_infiller(model, device):
@@ -73,6 +74,35 @@ def get_infilled(infiller, masked_in_x, masked_out_x, binary_mask, x):
         return masked_in_x, masked_out_x
 
 
+def modify_inputs_for_use_p(x, paths, columns,
+                            idx=0, prob_sample_low=0.25, prob_sample_high=0.75):
+    new_x = torch.stack([x[idx]] * columns, dim=0)
+    new_paths = [paths[idx]] * columns
+    use_p = torch.tensor(np.linspace(
+        prob_sample_low, prob_sample_high, columns
+    ).astype(np.float32)).unsqueeze(1)
+    return new_x, new_paths, use_p
+
+
+def prep_inputs(x, paths, columns, device, masker, use_p_mode):
+    if masker.add_prob_layers:
+        if use_p_mode == "sample":
+            x, paths, use_p = modify_inputs_for_use_p(
+                x=x, paths=paths, columns=columns,
+            )
+            use_p = use_p.to(device)
+        elif use_p_mode == "set":
+            use_p = 0.5
+        else:
+            raise KeyError(use_p_mode)
+    else:
+        use_p = None
+
+    x = x.to(device)
+
+    return x, paths, use_p
+
+
 def main(args: RunConfiguration):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     data_config = io.read_json(args.val_json)
@@ -107,10 +137,15 @@ def main(args: RunConfiguration):
     img_path_ls = []
     with PdfPages(os.path.join(dir_path, "plots.pdf")) as pdf:
         for i, ((x, _), paths) in enumerate(data_loader):
-            x = x.to(device)
+
+            x, paths, use_p = prep_inputs(
+                x=x, paths=paths, columns=args.columns,
+                device=device, masker=model["masker"],
+                use_p_mode=args.use_p_mode,
+            )
 
             # === get mask and masked images
-            binary_mask, soft_mask = get_binarized_mask(x, model)
+            binary_mask, soft_mask = get_binarized_mask(x, model, use_p=use_p)
             #   soft_masked_image = x * soft_mask
             masked_in_x, masked_out_x = get_masked_images(x, binary_mask, 0.0)
             infilled_masked_in, infilled_masked_out = get_infilled(
@@ -138,7 +173,7 @@ def main(args: RunConfiguration):
                 axes[3, col].imshow(to_plottable(infilled_masked_in[col]))
                 axes[4, col].imshow(to_plottable(infilled_masked_out[col]))
                 # axes[5, col].imshow(to_plottable(soft_masked_image[col]))
-                axes[5, col].imshow(to_plottable(soft_mask_arr[col]), ymin=0, ymax=1)
+                axes[5, col].imshow(soft_mask_arr[col], vmin=0, vmax=1)
 
                 if bboxes:
                     for bbox in score_bboxes.get_image_bboxes(bboxes, paths[col]):
@@ -147,6 +182,8 @@ def main(args: RunConfiguration):
                                 (bbox.xmin, bbox.ymin),
                                 bbox.width, bbox.height, linewidth=1, edgecolor='r', facecolor='none'
                             ))
+                if args.use_p_mode:
+                    axes[0, col].set_title(f"{soft_mask_arr[col].mean():.3f}")
 
             for ax in axes.flatten():
                 ax.set_xticks([])

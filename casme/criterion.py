@@ -115,7 +115,7 @@ class MaskerCriterion(nn.Module):
             correct_on_clean=correct_on_clean, mask_mean=mask_mean,
             reduce=reduce,
         )
-        tv_reg = tv_loss(img=mask, tv_weight=self.lambda_tv)
+        tv_reg = tv_loss(mask=mask, tv_weight=self.lambda_tv)
         regularization = mask_reg + tv_reg
 
         loss, loss_metadata = self.compute_only_loss(
@@ -561,12 +561,20 @@ def determine_mask_func(objective_direction, objective_type):
     return mask_func
 
 
-def tv_loss(img, tv_weight):
+def tv_loss(mask, tv_weight, power=2, border_penalty=0.3):
     if tv_weight is None or tv_weight == 0:
         return 0.0
     # https://github.com/chongyangma/cs231n/blob/master/assignments/assignment3/style_transfer_pytorch.py
-    w_variance = torch.sum(torch.pow(img[:, :, :, :-1] - img[:, :, :, 1:], 2))
-    h_variance = torch.sum(torch.pow(img[:, :, :-1, :] - img[:, :, 1:, :], 2))
-    loss = tv_weight * (h_variance + w_variance)
+    # https://github.com/PiotrDabkowski/pytorch-saliency/blob/bfd501ec7888dbb3727494d06c71449df1530196/sal/utils/mask.py#L5
+    w_variance = torch.sum(torch.pow(mask[:, :, :, :-1] - mask[:, :, :, 1:], power))
+    h_variance = torch.sum(torch.pow(mask[:, :, :-1, :] - mask[:, :, 1:, :], power))
+    if border_penalty > 0:
+        border = float(border_penalty)*torch.sum(
+            mask[:, :, -1, :]**power + mask[:, :, 0, :]**power
+            + mask[:, :, :, -1]**power + mask[:, :, :, 0]**power
+        )
+    else:
+        border = 0.
+    loss = tv_weight * (h_variance + w_variance + border) / float(power * mask.size(0))
     return loss
 

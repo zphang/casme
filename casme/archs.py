@@ -478,6 +478,7 @@ class Masker(nn.Module):
         if self.add_class_ids:
             more_dims += 64
 
+        self.conv1x1_0 = None
         self.conv1x1_1 = None
         self.conv1x1_2 = None
         self.conv1x1_3 = None
@@ -512,7 +513,10 @@ class Masker(nn.Module):
                 m.bias.data.zero_()
 
     def _get_final_layer_in_channels(self, in_channels, out_channels, more_dims):
-        final_layer_in_channels = more_dims
+        if self.use_layers == (0,):
+            final_layer_in_channels = more_dims
+        else:
+            final_layer_in_channels = 0
         if 0 in self.use_layers:
             final_layer_in_channels += in_channels[0]
         for i in range(1, 5):
@@ -540,6 +544,8 @@ class Masker(nn.Module):
         return final
 
     def _setup_add_conv_layers(self, in_channels, out_channels, more_dims):
+        if self.use_layers == (0,):
+            self.conv1x1_0 = self._make_conv1x1_upsampled(in_channels[0] + more_dims, out_channels)
         if 1 in self.use_layers:
             self.conv1x1_1 = self._make_conv1x1_upsampled(in_channels[1] + more_dims, out_channels)
         if 2 in self.use_layers:
@@ -575,7 +581,10 @@ class Masker(nn.Module):
 
         k = []
         if 0 in self.use_layers:
-            k.append(layers[0])
+            if self.use_layers == (0,):
+                k.append(self.conv1x1_0(layers[0]))
+            else:
+                k.append(layers[0])
         if 1 in self.use_layers:
             k.append(self.conv1x1_1(layers[1]))
         if 2 in self.use_layers:

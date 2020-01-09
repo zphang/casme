@@ -21,7 +21,8 @@ def main(args):
 
     if args.mode == "casme":
         plot_casme_args = plot_casme.RunConfiguration(
-            val_json=val_json,
+            val_json="/gpfs/data/geraslab/zphang/working/1912/29_new_metadata/train_val.json",
+            bbox_json="/gpfs/data/geraslab/zphang/working/1912/29_new_metadata/train_val_bboxes.json",
             casm_path=best_casm_path,
             plots_path=plots_path,
         )
