@@ -50,7 +50,8 @@ def set_args(args):
     string_args = ''
     for name in sorted(vars(args)):
         string_args += name + '=' + str(getattr(args, name)) + ', '
-    io.write_json(args.log_path, args.to_dict())
+
+    io.write_json(args.to_dict(), os.path.join(args.casms_path, "args.json"))
 
 
 def set_reproduction(args):
