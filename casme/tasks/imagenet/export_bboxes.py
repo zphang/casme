@@ -12,6 +12,7 @@ def get_ground_truth_boxes(anno, category):
     for obj in objs:
         obj_names = obj.findChildren('name')
         for name_tag in obj_names:
+            # None of the examples fail this check? At least in val.
             if str(name_tag.contents[0]) == category:
                 # fname = anno.findChild('filename').contents[0]
                 bbox = obj.findChildren('bndbox')[0]
@@ -65,6 +66,7 @@ def resize_pos(raw_pos, width, height, break_ratio):
 def get_annotations(data_path, annotation_path, break_ratio):
     paths = glob.glob(os.path.join(data_path, 'val', "*", "*"))
     bboxes = {}
+    metadata_dict = {}
     for path in tqdm.tqdm(paths):
         ann_path = os.path.join(annotation_path, os.path.basename(path)).split('.')[0] + '.xml'
 
@@ -72,12 +74,15 @@ def get_annotations(data_path, annotation_path, break_ratio):
             raise KeyError("Annotations aren't found. Aborting!")
 
         category = path.split('/')[-2]
-        bboxes[os.path.basename(path).split(".")[0]] = get_gt_boxes(
+        bbox_ls, metadata = get_gt_boxes(
             ann_path=ann_path,
             category=category,
             break_ratio=break_ratio,
         )
-    return bboxes
+        key = os.path.basename(path).split(".")[0]
+        bboxes[key] = bbox_ls
+        metadata_dict[key] = metadata
+    return bboxes, metadata_dict
 
 
 def get_gt_boxes(ann_path, category, break_ratio, html_lib="html.parser"):
@@ -90,24 +95,36 @@ def get_gt_boxes(ann_path, category, break_ratio, html_lib="html.parser"):
     height = int(size.findChildren('height')[0].contents[0])
 
     # get ground truth boxes positions in the original resolution
-    gt_boxes = get_ground_truth_boxes(anno, category)
+    original_gt_boxes = get_ground_truth_boxes(anno, category)
     # get ground truth boxes positions in the resized resolution
-    gt_boxes = get_resized_pos(gt_boxes, width, height, break_ratio)
+    gt_boxes = get_resized_pos(original_gt_boxes, width, height, break_ratio)
     gt_boxes_dicts = [
         dict(zip(["xmin", "ymin", "xmax", "ymax"], gt_box))
         for gt_box in gt_boxes
     ]
-    return gt_boxes_dicts
+    original_gt_boxes_dicts = [
+        dict(zip(["xmin", "ymin", "xmax", "ymax"], gt_box))
+        for gt_box in original_gt_boxes
+    ]
+    metadata = {
+        "width": width,
+        "height": height,
+        "gt_boxes": original_gt_boxes_dicts,
+    }
+    return gt_boxes_dicts, metadata
 
 
-def get_annotations_and_write(data_path, annotation_path, break_ratio, output_path):
-    annotations = get_annotations(
+def get_annotations_and_write(data_path, annotation_path, break_ratio, output_path, metadata_output_path=None):
+    annotations, metadata = get_annotations(
         data_path=data_path,
         annotation_path=annotation_path,
         break_ratio=break_ratio,
     )
     with open(output_path, "w") as f:
         f.write(json.dumps(annotations, indent=2))
+    if metadata_output_path:
+        with open(metadata_output_path, "w") as f:
+            f.write(json.dumps(metadata, indent=2))
 
 
 def main():
@@ -117,6 +134,7 @@ def main():
         annotation_path=args.annotation_path,
         break_ratio=args.break_ratio,
         output_path=args.output_path,
+        metadata_output_path=args.metadata_output_path,
     )
 
 
@@ -126,6 +144,7 @@ def get_args():
     parser.add_argument('--annotation_path')
     parser.add_argument('--break_ratio', action='store_true')
     parser.add_argument('--output_path')
+    parser.add_argument('--metadata_output_path', default=None)
 
     args = parser.parse_args()
     return args

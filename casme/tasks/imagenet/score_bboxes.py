@@ -112,12 +112,16 @@ def score(args, model, data_loader, bboxes, original_classifier):
             if model['special'] == 'max':
                 continuous = np.ones((args.batch_size, 224, 224))
                 rectangular = continuous
-                bbox_coords = [BoxCoords(0, 223, 0, 223)] * len(target)
+                bbox_coords = [BoxCoords(0, 224, 0, 224)] * len(target)
             elif model['special'] == 'center':
                 continuous = np.zeros((args.batch_size, 224, 224))
                 continuous[:, 33:-33, 33:-33] = 1
                 rectangular = continuous
                 bbox_coords = [BoxCoords(33, 224-33, 33, 224-33)] * len(target)
+            elif model['special'] == 'none':
+                continuous = np.zeros((args.batch_size, 224, 224))
+                rectangular = continuous
+                bbox_coords = [BoxCoords(0, 0, 0, 0)] * len(target)
             elif model['special'] == 'ground_truth':
                 # Special handling later
                 rectangular = continuous = np.zeros((args.batch_size, 224, 224))
@@ -141,7 +145,8 @@ def score(args, model, data_loader, bboxes, original_classifier):
             for gt_box in gt_boxes:
                 if model.get('special') == 'ground_truth':
                     gt_mask = np.zeros([224, 224])
-                    gt_mask[gt_box.yslice, gt_box.xslice] = 1
+                    truncated_gt_box = gt_box.clamp(0, 224)
+                    gt_mask[truncated_gt_box.yslice, truncated_gt_box.xslice] = 1
                     f1_for_box, iou_for_box = get_loc_scores(gt_box, gt_mask, gt_mask)
                 else:
                     f1_for_box, iou_for_box = get_loc_scores(gt_box, continuous[idx], rectangular[idx])
@@ -149,6 +154,7 @@ def score(args, model, data_loader, bboxes, original_classifier):
                 f1s_for_image.append(f1_for_box)
                 ious_for_image.append(iou_for_box)
 
+            # print(1 - np.array(ious_for_image).max())
             f1_meter.update(np.array(f1s_for_image).max())
             f1a_meter.update(np.array(f1s_for_image).mean())
             le_meter.update(1 - np.array(ious_for_image).max())
@@ -169,7 +175,6 @@ def score(args, model, data_loader, bboxes, original_classifier):
                 bbox_coords=bbox_coords,
                 classifier=original_classifier,
             )
-        print(saliency_metric.mean())
         for sm, sm1, sm2 in zip(saliency_metric, sm1_ls, sm2_ls):
             sm_meter.update(sm)
             sm1_meter.update(sm1)
@@ -225,35 +230,11 @@ def score(args, model, data_loader, bboxes, original_classifier):
     return results
 
 
-def compute_agg_loc_scores(gt_boxes, continuous_mask, rectangular_mask, is_correct, include_partial=False):
-    f1s_for_image = []
-    ious_for_image = []
-    for bbox in gt_boxes:
-        f1_for_box, iou_for_box = get_loc_scores(
-            bbox=bbox,
-            continuous_mask=continuous_mask,
-            rectangular_mask=rectangular_mask,
-        )
-        f1s_for_image.append(f1_for_box)
-        ious_for_image.append(iou_for_box)
-
-    result = {
-        "f1": np.array(f1s_for_image).max(),
-        "le": 1 - np.array(ious_for_image).max(),
-        "om": 1 - (np.array(ious_for_image).max() * is_correct),
-    }
-    if include_partial:
-        result["f1s_for_image"] = f1s_for_image
-        result["ious_for_image"] = ious_for_image
-
-    return result
-
-
 def get_loc_scores(bbox, continuous_mask, rectangular_mask):
     if bbox.area == 0:
         return 0, 0
 
-    truncated_bbox = bbox.clamp(0, 223)
+    truncated_bbox = bbox.clamp(0, 224)
 
     gt_box = np.zeros((224, 224))
     gt_box[truncated_bbox.yslice, truncated_bbox.xslice] = 1
@@ -300,7 +281,7 @@ def compute_saliency_metric(input_, target, bbox_coords, classifier):
                 interpolation=cv2.INTER_CUBIC,
             )
         else:
-            resized_sliced_input_single = np.zeros([224, 224])
+            resized_sliced_input_single = np.zeros([224, 224, 3])
         area_ls.append(bbox.area)
         resized_sliced_input_ls.append(resized_sliced_input_single)
     resized_input = torch.tensor(np.moveaxis(np.array(resized_sliced_input_ls), 3, 1)).float()
@@ -322,7 +303,9 @@ def compute_saliency_metric_ground_truth(input_, target, bboxes, paths, classifi
     target_ls = []
     for i, path in enumerate(paths):
         for bbox in get_image_bboxes(bboxes, paths[i]):
+            bbox = bbox.clamp(0, 224)
             sliced_input_single = imagenet_utils.tensor_to_image_arr(input_[i, :, bbox.yslice, bbox.xslice])
+            # if bbox.area > 1:  # minimum is set to 1 pixel because of inclusive boundaries
             if bbox.area > 0:
                 resized_sliced_input_single = cv2.resize(
                     sliced_input_single,
@@ -330,7 +313,7 @@ def compute_saliency_metric_ground_truth(input_, target, bboxes, paths, classifi
                     interpolation=cv2.INTER_CUBIC,
                 )
             else:
-                resized_sliced_input_single = np.zeros([224, 224])
+                resized_sliced_input_single = np.zeros([224, 224, 3])
             area_ls.append(bbox.area)
             resized_sliced_input_ls.append(resized_sliced_input_single)
             img_idx_ls.append(i)
@@ -348,7 +331,7 @@ def compute_saliency_metric_ground_truth(input_, target, bboxes, paths, classifi
     })
     averaged_within_img_df = df.groupby("img_idx").mean().sort_index()
     saliency_metric = (averaged_within_img_df["term_1"] - averaged_within_img_df["term_2"]).values
-    return saliency_metric
+    return saliency_metric, averaged_within_img_df["term_1"].values, averaged_within_img_df["term_2"].values
 
 
 def get_image_bboxes(bboxes_dict, path):

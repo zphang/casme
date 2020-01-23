@@ -27,6 +27,8 @@ MODEL_PARAMETERS = {
 
 @dataclass
 class BoxCoords:
+    # Exclusive
+
     xmin: Union[int, np.ndarray]
     xmax: Union[int, np.ndarray]
     ymin: Union[int, np.ndarray]
@@ -34,26 +36,26 @@ class BoxCoords:
 
     @property
     def xslice(self):
-        return slice(self.xmin, self.xmax + 1)
+        return slice(self.xmin, self.xmax)
 
     @property
     def yslice(self):
-        return slice(self.ymin, self.ymax + 1)
+        return slice(self.ymin, self.ymax)
 
     @property
     def width(self):
-        return self.xmax + 1 - self.xmin
+        return self.xmax - self.xmin
 
     @property
     def height(self):
-        return self.ymax + 1 - self.ymin
+        return self.ymax - self.ymin
 
     @property
     def area(self):
         return self.width * self.height
 
     def clamp(self, vmin, vmax):
-        return BoxCoords(
+        return self.__class__(
             xmin=np.clip(self.xmin, vmin, vmax),
             xmax=np.clip(self.xmax, vmin, vmax),
             ymin=np.clip(self.ymin, vmin, vmax),
@@ -69,6 +71,14 @@ class BoxCoords:
             ymax=d["ymax"],
         )
 
+    def to_dict(self):
+        return {
+            "xmin": self.xmin,
+            "xmax": self.xmax,
+            "ymin": self.ymin,
+            "ymax": self.ymax,
+        }
+
 
 def casme_load_model(casm_path, classifier_load_mode="pickled", verbose=True):
     name = casm_path.split('/')[-1].replace('.chk', '')
@@ -82,7 +92,7 @@ def casme_load_model(casm_path, classifier_load_mode="pickled", verbose=True):
         classifier.load_state_dict(checkpoint['state_dict_classifier'])
     elif classifier_load_mode == "original":
         classifier = archs.resnet50shared(pretrained=True)
-    elif classifier_load_mode.startwith("path:"):
+    elif classifier_load_mode.startswith("path:"):
         classifier = archs.resnet50shared(pretrained=True, path=classifier_load_mode[5:])
     else:
         raise KeyError(classifier_load_mode)

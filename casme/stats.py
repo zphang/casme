@@ -128,10 +128,10 @@ class StatisticsContainer:
 
     def get_dictionary(self):
         return {
-            'avg_mask': str(self.avg.avg),
-            'std_mask': str(self.std.avg),
-            'entropy': str(self.entropy.avg),
-            'tv': str(self.tv.avg)
+            'avg_mask': self.avg.avg,
+            'std_mask': self.std.avg,
+            'entropy': self.entropy.avg,
+            'tv': self.tv.avg,
         }
 
 
