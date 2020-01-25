@@ -12,6 +12,8 @@ class RunConfiguration(zconf.RunConfig):
     base_path = zconf.attr(default="best")
     eval_mode = zconf.attr(default="train_val")
     output_path = zconf.attr(default=None)
+    record_bboxes = zconf.attr(default=None)
+    use_p = zconf.attr(type=float, default=None)
 
     classifier_load_mode = zconf.attr(default="pickled")
     workers = zconf.attr(default=4, type=int, help='number of data loading workers (default: 4)')
@@ -35,7 +37,7 @@ def resolve_data_paths(eval_mode):
 
 
 def run_scoring(args: RunConfiguration,
-                mode, casm_path, output_path, bboxes_path, val_json):
+                mode, casm_path, output_path, bboxes_path, val_json, record_bboxes):
     score_bboxes_args = score_bboxes.RunConfiguration(
         val_json=val_json,
         bboxes_path=bboxes_path,
@@ -43,6 +45,8 @@ def run_scoring(args: RunConfiguration,
         casm_path=casm_path,
         classifier_load_mode=args.classifier_load_mode,
         output_path=output_path,
+        record_bboxes=record_bboxes,
+        use_p=args.use_p,
         workers=args.workers,
         batch_size=args.batch_size,
         print_freq=args.print_freq,
@@ -69,6 +73,7 @@ def run_single(args: RunConfiguration,
         output_path=output_path,
         bboxes_path=bboxes_path,
         val_json=val_json,
+        record_bboxes=args.record_bboxes,
     )
 
 
@@ -97,6 +102,7 @@ def run_all(args: RunConfiguration,
             output_path=output_path,
             bboxes_path=bboxes_path,
             val_json=val_json,
+            record_bboxes=None,
         )
 
 
@@ -112,6 +118,15 @@ def main(args: RunConfiguration):
             bboxes_path=bboxes_path,
             val_json=val_json,
         )
+    if args.mode in ("external", ):
+        os.makedirs(os.path.split(args.output_path)[0], exist_ok=True)
+        run_single(
+            args=args,
+            mode=args.mode,
+            casm_path=args.base_path,  # actually bbox json
+            bboxes_path=bboxes_path,
+            val_json=val_json,
+        )
     elif args.mode == "best":
         casm_path = utils.find_best_model(args.base_path)
         print(f"Scoring: {casm_path}")
@@ -123,6 +138,7 @@ def main(args: RunConfiguration):
             val_json=val_json,
         )
     elif args.mode == "all":
+        assert not args.record_bboxes
         casm_path_ls = utils.get_all_models(args.base_path)
         run_all(
             args=args,

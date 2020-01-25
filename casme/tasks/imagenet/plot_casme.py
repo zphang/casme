@@ -84,15 +84,17 @@ def modify_inputs_for_use_p(x, paths, columns,
     return new_x, new_paths, use_p
 
 
-def prep_inputs(x, paths, columns, device, masker, use_p_mode):
+def prep_inputs(x, paths, columns, device, masker, use_p_mode, use_p_kwargs):
     if masker.add_prob_layers:
         if use_p_mode == "sample":
             x, paths, use_p = modify_inputs_for_use_p(
                 x=x, paths=paths, columns=columns,
+                prob_sample_low=use_p_kwargs["prob_sample_low"],
+                prob_sample_high=use_p_kwargs["prob_sample_high"],
             )
             use_p = use_p.to(device)
         elif use_p_mode == "set":
-            use_p = 0.5
+            use_p = use_p_kwargs["use_p_val"]
         else:
             raise KeyError(use_p_mode)
     else:

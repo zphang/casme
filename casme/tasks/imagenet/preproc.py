@@ -165,7 +165,7 @@ def generate_jsons_with_extended_annot(
     subsampled_annot_data = {}
     for path, _ in train_val_samples:
         _, class_id, file_id = split_path(path)
-        subsampled_annot_data[f"{class_id}_{file_id}"] = export_bboxes.get_gt_boxes(
+        subsampled_annot_data[f"{class_id}_{file_id}"], metadata = export_bboxes.get_gt_boxes(
             ann_path=annot_data[(class_id, file_id)],
             category=class_id,
             break_ratio=False,

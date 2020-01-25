@@ -130,10 +130,15 @@ def casme_load_model(casm_path, classifier_load_mode="pickled", verbose=True):
     return {'classifier': classifier, 'masker': masker, 'name': name, 'checkpoint': checkpoint}
 
 
-def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0):
+def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0, use_p=None):
     with torch.no_grad():
         input_, target = input_.clone(), target.clone()
-        mask, output = get_mask(input_, model, get_output=True)
+        mask, output = get_mask(
+            input_=input_,
+            model=model,
+            use_p=use_p,
+            get_output=True,
+        )
 
         binarized_mask = binarize_mask(mask.clone())
         rectangular = torch.empty_like(binarized_mask)

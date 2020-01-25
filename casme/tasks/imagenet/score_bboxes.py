@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import os
 import pandas as pd
-import json
 import time
 
 import torch
@@ -18,6 +17,7 @@ import zconf
 import pyutils.io as io
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+AXIS_RANGE = np.arange(224)
 
 
 @zconf.run_config
@@ -28,6 +28,8 @@ class RunConfiguration(zconf.RunConfig):
     casm_path = zconf.attr(help='model_checkpoint')
     classifier_load_mode = zconf.attr(default="pickled")
     output_path = zconf.attr(help='output_path')
+    record_bboxes = zconf.attr(type=str, default=None)
+    use_p = zconf.attr(type=float, default=None)
 
     workers = zconf.attr(default=4, type=int, help='number of data loading workers (default: 4)')
     batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 256)')
@@ -64,24 +66,61 @@ def main(args: RunConfiguration):
         model = {'special': 'ground_truth', 'classifier': original_classifier}
     elif args.mode == "casme":
         model = casme_load_model(args.casm_path, classifier_load_mode=args.classifier_load_mode)
+    elif args.mode == "external":
+        model = {'special': 'external', 'classifier': original_classifier, 'bboxes': io.read_json(args.casm_path)}
     else:
         raise KeyError(args.mode)
 
-    bboxes = io.read_json(args.bboxes_path)
+    gt_bboxes = io.read_json(args.bboxes_path)
 
-    results = score(
+    results, candidate_bbox_ls = score(
         args=args,
         model=model,
         data_loader=data_loader,
-        bboxes=bboxes,
+        bboxes=gt_bboxes,
         original_classifier=original_classifier,
+        record_bboxes=args.record_bboxes,
     )
 
-    with open(args.output_path, "w") as f:
-        f.write(json.dumps(results, indent=2))
+    io.write_json(results, args.output_path)
+    if args.record_bboxes:
+        assert candidate_bbox_ls
+        io.write_json([bbox.to_dict() for bbox in candidate_bbox_ls], args.record_bboxes)
 
 
-def score(args, model, data_loader, bboxes, original_classifier):
+def mask_to_bbox(mask, axis_range=AXIS_RANGE):
+    x_range = mask.any(axis=0)
+    y_range = mask.any(axis=1)
+    img_x_range = axis_range[x_range]
+    img_y_range = axis_range[y_range]
+    if len(img_x_range) and len(img_y_range):
+        bbox = BoxCoords(
+            xmin=int(img_x_range[0]),
+            xmax=int(img_x_range[-1] + 1),
+            ymin=int(img_y_range[0]),
+            ymax=int(img_y_range[-1] + 1),
+        )
+    else:
+        bbox = BoxCoords(
+            xmin=0,
+            xmax=224,
+            ymin=0,
+            ymax=224,
+        )
+    return bbox
+
+
+def masks_to_bboxes(masks, axis_range=AXIS_RANGE):
+    bbox_ls = []
+    for i in range(masks.shape[0]):
+        bbox_ls.append(mask_to_bbox(
+            mask=masks[i],
+            axis_range=axis_range,
+        ))
+    return bbox_ls
+
+
+def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=False):
     if 'special' in model.keys():
         print("=> Special mode evaluation: {}.".format(model['special']))
 
@@ -98,6 +137,7 @@ def score(args, model, data_loader, bboxes, original_classifier):
     statistics = StatisticsContainer()
 
     end = time.time()
+    candidate_bbox_ls = []
 
     # data loop
     for i, ((input_, target), paths) in enumerate(data_loader):
@@ -126,11 +166,22 @@ def score(args, model, data_loader, bboxes, original_classifier):
                 # Special handling later
                 rectangular = continuous = np.zeros((args.batch_size, 224, 224))
                 bbox_coords = [None] * len(target)
+            elif model['special'] == 'external':
+                # Special handling later
+                rectangular = continuous = np.zeros((args.batch_size, 224, 224))
+                bbox_coords = [BoxCoords.from_dict(model["bboxes"][get_path_stub(path)]) for path in paths]
+                for j, bbox_coord in enumerate(bbox_coords):
+                    rectangular[j, bbox_coord.yslice, bbox_coord.xslice] = 1
             else:
                 raise KeyError(model["special"])
         else:
             continuous, rectangular, is_correct, bbox_coords = \
-                get_masks_and_check_predictions(input_, target, model)
+                get_masks_and_check_predictions(
+                    input_=input_, target=target, model=model,
+                    use_p=args.use_p,
+                )
+            if record_bboxes:
+                candidate_bbox_ls += masks_to_bboxes(rectangular)
 
         # update statistics
         statistics.update(torch.tensor(continuous).unsqueeze(1))
@@ -227,7 +278,7 @@ def score(args, model, data_loader, bboxes, original_classifier):
         'SM2': sm2_meter.avg,
         **statistics.get_dictionary(),
     }
-    return results
+    return results, candidate_bbox_ls
 
 
 def get_loc_scores(bbox, continuous_mask, rectangular_mask):
@@ -336,9 +387,13 @@ def compute_saliency_metric_ground_truth(input_, target, bboxes, paths, classifi
 
 def get_image_bboxes(bboxes_dict, path):
     ls = []
-    for bbox in bboxes_dict[os.path.basename(path).split('.')[0]]:
+    for bbox in bboxes_dict[get_path_stub(path)]:
         ls.append(BoxCoords.from_dict(bbox))
     return ls
+
+
+def get_path_stub(path):
+    return os.path.basename(path).split('.')[0]
 
 
 if __name__ == '__main__':

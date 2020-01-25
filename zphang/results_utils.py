@@ -121,7 +121,7 @@ class ModelWrapper:
         return cls(model, infiller)
 
 
-def get_inputs(data_config, i, add_prob_layers=False):
+def get_inputs(data_config, i, add_prob_layers=False, use_p_mode=False, use_p_kwargs=None):
     a = add_prob_layers
 
     class Temp:
@@ -141,7 +141,8 @@ def get_inputs(data_config, i, add_prob_layers=False):
     x, paths, use_p = plot_casme.prep_inputs(
         x=x, paths=paths, columns=1,
         device=DEVICE, masker=Temp,
-        use_p_mode=False,
+        use_p_mode=use_p_mode,
+        use_p_kwargs=use_p_kwargs,
     )
     return Input(x, y, use_p, paths)
 
@@ -191,9 +192,13 @@ def red_colorize(mask):
     return np.stack([mask, np.zeros([224, 224]), np.zeros([224, 224])], axis=2)
 
 
+def prime_colorize(mask):
+    return np.stack([np.zeros([224, 224]), mask, np.zeros([224, 224])], axis=2)
+
+
 def mask_concatenated(x, mask):
-    red_mask = red_colorize(mask)
-    return np.concatenate([(x * 0.8 + red_mask).clip(0, 1), red_mask], axis=1)
+    colored_mask = prime_colorize(mask)
+    return np.concatenate([(x*0.8 + colored_mask).clip(0, 1), colored_mask], axis=1)
 
 
 def multi_sorted_glob(star_path_ls):
