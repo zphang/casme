@@ -109,7 +109,7 @@ def run_all(args: RunConfiguration,
 def main(args: RunConfiguration):
     val_json, bboxes_path = resolve_data_paths(args.eval_mode)
 
-    if args.mode in ("center", "max", 'ground_truth', 'none'):
+    if args.mode in ("center", "max", 'ground_truth', 'none', 'min'):
         os.makedirs(os.path.split(args.output_path)[0], exist_ok=True)
         run_single(
             args=args,
@@ -118,7 +118,7 @@ def main(args: RunConfiguration):
             bboxes_path=bboxes_path,
             val_json=val_json,
         )
-    if args.mode in ("external", ):
+    elif args.mode in ("external", ):
         os.makedirs(os.path.split(args.output_path)[0], exist_ok=True)
         run_single(
             args=args,

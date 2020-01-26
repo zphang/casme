@@ -60,6 +60,8 @@ def main(args: RunConfiguration):
     # get score for special cases
     if args.mode == "max":
         model = {'special': 'max', 'classifier': original_classifier}
+    elif args.mode == "min":
+        model = {'special': 'min', 'classifier': original_classifier}
     elif args.mode == "center":
         model = {'special': 'center', 'classifier': original_classifier}
     elif args.mode == "ground_truth":
@@ -153,6 +155,10 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
                 continuous = np.ones((args.batch_size, 224, 224))
                 rectangular = continuous
                 bbox_coords = [BoxCoords(0, 224, 0, 224)] * len(target)
+            elif model['special'] == 'min':
+                continuous = np.zeros((args.batch_size, 224, 224))
+                rectangular = continuous
+                bbox_coords = [BoxCoords(0, 0, 0, 0)] * len(target)
             elif model['special'] == 'center':
                 continuous = np.zeros((args.batch_size, 224, 224))
                 continuous[:, 33:-33, 33:-33] = 1
