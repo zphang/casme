@@ -53,6 +53,7 @@ class RunConfiguration(zconf.RunConfig):
                                help='probability for evaluating historic model')
     save_freq = zconf.attr(default=1000, type=int,
                            help='frequency of model saving to history (in batches)')
+    actual_save_freq = zconf.attr(default=1, type=int)
     f_size = zconf.attr(default=30, type=int,
                         help='size of F set - maximal number of previous classifier iterations stored')
     resnet_path = zconf.attr(default=None, type=str, help="If none, defaults to loading from full ResNet-50")
@@ -261,14 +262,15 @@ def main(args):
             )
 
         # save checkpoint
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'state_dict_classifier': classifier.state_dict(),
-            'state_dict_masker': masker.state_dict(),
-            'optimizer_classifier': classifier_optimizer.state_dict(),
-            'optimizer_masker': masker_optimizer.state_dict(),
-            'args': args.to_dict(),
-        }, args)
+        if (epoch + 1) % args.actual_save_freq == 0:
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict_classifier': classifier.state_dict(),
+                'state_dict_masker': masker.state_dict(),
+                'optimizer_classifier': classifier_optimizer.state_dict(),
+                'optimizer_masker': masker_optimizer.state_dict(),
+                'args': args.to_dict(),
+            }, args)
 
 
 if __name__ == '__main__':
