@@ -164,6 +164,7 @@ def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0
             rectangular.squeeze().cpu().numpy(),
             is_correct.cpu().numpy(),
             box_coord_ls,
+            output,
         )
 
 
@@ -245,3 +246,20 @@ def get_saliency_point(single_soft_mask_arr, single_binary_mask_arr):
     mask_arr = single_soft_mask_arr * get_largest_connected(single_binary_mask_arr)
     point = tuple([int(np.round(i)) for i in scipy.ndimage.measurements.center_of_mass(mask_arr)])
     return point
+
+
+def classification_accuracy(output, target, topk=(1,)):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        return res

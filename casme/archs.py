@@ -223,22 +223,31 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
     
-    def forward(self, x):
+    def forward(self, x, return_intermediate=False):
+        l = []
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
+        l.append(x)
 
         x = self.layer1(x)
+        l.append(x)
         x = self.layer2(x)
+        l.append(x)
         x = self.layer3(x)
+        l.append(x)
         x = self.layer4(x)
+        l.append(x)
 
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
-        return x
+        if return_intermediate:
+            return x, l
+        else:
+            return x
 
 
 class ResNetShared(ResNet):
@@ -286,8 +295,8 @@ def replace_prefix(s, prefix):
 def resnet50shared(pretrained=False, path=None, **kwargs):
     model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
     # Monkey-patch
-    print("Patching ResNet.forward")
-    monkey_patch_resnet(model)
+    #print("Patching ResNet.forward")
+    #monkey_patch_resnet(model)
     if pretrained:
         if path is None:
             model.load_state_dict(model_zoo.load_url('https://download.pytorch.org/models/resnet50-19c8e357.pth'))

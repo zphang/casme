@@ -8,7 +8,7 @@ import torch
 import torchvision.transforms as transforms
 
 from casme.stats import AverageMeter, StatisticsContainer
-from casme.model_basics import casme_load_model, get_masks_and_check_predictions, BoxCoords
+from casme.model_basics import casme_load_model, get_masks_and_check_predictions, BoxCoords, classification_accuracy
 from casme.utils.torch_utils import ImagePathDataset
 import casme.tasks.imagenet.utils as imagenet_utils
 from casme import archs
@@ -136,6 +136,9 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
     sm_meter = AverageMeter()
     sm1_meter = AverageMeter()
     sm2_meter = AverageMeter()
+    sm_acc_meter = AverageMeter()
+    top1_meter = AverageMeter()
+    top5_meter = AverageMeter()
     statistics = StatisticsContainer()
 
     end = time.time()
@@ -181,11 +184,14 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
             else:
                 raise KeyError(model["special"])
         else:
-            continuous, rectangular, is_correct, bbox_coords = \
+            continuous, rectangular, is_correct, bbox_coords, classifier_outputs = \
                 get_masks_and_check_predictions(
                     input_=input_, target=target, model=model,
                     use_p=args.use_p,
                 )
+            acc1, acc5 = classification_accuracy(classifier_outputs, target.to(device), topk=(1, 5))
+            top1_meter.update(acc1.item(), n=target.shape[0])
+            top5_meter.update(acc5.item(), n=target.shape[0])
             if record_bboxes:
                 candidate_bbox_ls += masks_to_bboxes(rectangular)
 
@@ -211,7 +217,6 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
                 f1s_for_image.append(f1_for_box)
                 ious_for_image.append(iou_for_box)
 
-            # print(1 - np.array(ious_for_image).max())
             f1_meter.update(np.array(f1s_for_image).max())
             f1a_meter.update(np.array(f1s_for_image).mean())
             le_meter.update(1 - np.array(ious_for_image).max())
@@ -225,17 +230,21 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
                 paths=paths,
                 classifier=original_classifier,
             )
+            sm_acc = None
         else:
-            saliency_metric, sm1_ls, sm2_ls = compute_saliency_metric(
+            saliency_metric, sm1_ls, sm2_ls, sm_acc = compute_saliency_metric(
                 input_=input_,
                 target=target,
                 bbox_coords=bbox_coords,
                 classifier=original_classifier,
             )
+
         for sm, sm1, sm2 in zip(saliency_metric, sm1_ls, sm2_ls):
             sm_meter.update(sm)
             sm1_meter.update(sm1)
             sm2_meter.update(sm2)
+        if sm_acc is not None:
+            sm_acc_meter.update(sm_acc, n=len(saliency_metric))
 
         # measure elapsed time
         batch_time += time.time() - end
@@ -282,6 +291,9 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
         'SM': sm_meter.avg,
         'SM1': sm1_meter.avg,
         'SM2': sm2_meter.avg,
+        'top1': top1_meter.avg,
+        'top5': top5_meter.avg,
+        'sm_acc': sm_acc_meter.avg,
         **statistics.get_dictionary(),
     }
     return results, candidate_bbox_ls
@@ -349,7 +361,11 @@ def compute_saliency_metric(input_, target, bbox_coords, classifier):
         torch.arange(cropped_upscaled_yhat.size(0)), target].log().numpy()
     saliency_metric = term_1 - term_2
     # Note: not reduced
-    return saliency_metric, term_1, term_2
+
+    # Slightly redundant, but doing to validate we're computing things correctly
+    acc1, = classification_accuracy(cropped_upscaled_yhat, target.to(device), topk=(1,))
+
+    return saliency_metric, term_1, term_2, acc1.item()
 
 
 def compute_saliency_metric_ground_truth(input_, target, bboxes, paths, classifier):
