@@ -161,6 +161,7 @@ def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0
 
         return (
             mask.squeeze().cpu().numpy(),
+            binarized_mask.cpu().numpy(),
             rectangular.squeeze().cpu().numpy(),
             is_correct.cpu().numpy(),
             box_coord_ls,

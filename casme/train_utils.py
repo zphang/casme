@@ -28,6 +28,8 @@ def adjust_learning_rate(classifier_optimizer, masker_optimizer, epoch, lr, lr_c
 
 
 def single_adjust_learning_rate(optimizer, epoch, lr, lrde):
+    if lrde == 0 or lrde is None:
+        return
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr * (0.1 ** (epoch // lrde))
 

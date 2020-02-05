@@ -1,20 +1,28 @@
-import cv2
 import numpy as np
-import os
-import pandas as pd
 import time
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.transforms as transforms
 
 from casme.stats import AverageMeter, StatisticsContainer
-from casme.model_basics import casme_load_model, get_masks_and_check_predictions, BoxCoords, classification_accuracy
+from casme.model_basics import (
+    casme_load_model, get_masks_and_check_predictions, BoxCoords, classification_accuracy,
+    get_rectangular_mask,
+)
 from casme.utils.torch_utils import ImagePathDataset
 import casme.tasks.imagenet.utils as imagenet_utils
 from casme import archs
 
 import zconf
 import pyutils.io as io
+from scipy.ndimage.morphology import binary_dilation, binary_erosion
+from casme.tasks.imagenet.score_bboxes import (
+    masks_to_bboxes, get_path_stub, get_image_bboxes, get_loc_scores,
+    compute_saliency_metric, compute_saliency_metric_ground_truth
+)
+from scipy.stats import rankdata
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 AXIS_RANGE = np.arange(224)
@@ -29,7 +37,7 @@ class RunConfiguration(zconf.RunConfig):
     classifier_load_mode = zconf.attr(default="pickled")
     output_path = zconf.attr(help='output_path')
     record_bboxes = zconf.attr(type=str, default=None)
-    use_p = zconf.attr(type=float, default=None)
+    logits_use_p = zconf.attr(type=str, default=None)
 
     workers = zconf.attr(default=4, type=int, help='number of data loading workers (default: 4)')
     batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 256)')
@@ -90,38 +98,6 @@ def main(args: RunConfiguration):
         io.write_json([bbox.to_dict() for bbox in candidate_bbox_ls], args.record_bboxes)
 
 
-def mask_to_bbox(mask, axis_range=AXIS_RANGE):
-    x_range = mask.any(axis=0)
-    y_range = mask.any(axis=1)
-    img_x_range = axis_range[x_range]
-    img_y_range = axis_range[y_range]
-    if len(img_x_range) and len(img_y_range):
-        bbox = BoxCoords(
-            xmin=int(img_x_range[0]),
-            xmax=int(img_x_range[-1] + 1),
-            ymin=int(img_y_range[0]),
-            ymax=int(img_y_range[-1] + 1),
-        )
-    else:
-        bbox = BoxCoords(
-            xmin=0,
-            xmax=224,
-            ymin=0,
-            ymax=224,
-        )
-    return bbox
-
-
-def masks_to_bboxes(masks, axis_range=AXIS_RANGE):
-    bbox_ls = []
-    for i in range(masks.shape[0]):
-        bbox_ls.append(mask_to_bbox(
-            mask=masks[i],
-            axis_range=axis_range,
-        ))
-    return bbox_ls
-
-
 def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=False):
     if 'special' in model.keys():
         print("=> Special mode evaluation: {}.".format(model['special']))
@@ -144,6 +120,8 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
 
     end = time.time()
     candidate_bbox_ls = []
+
+    logits_use_p = torch.load(args.logits_use_p)
 
     # data loop
     for i, ((input_, target), paths) in enumerate(data_loader):
@@ -188,8 +166,10 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
             continuous, binarized, rectangular, is_correct, bbox_coords, classifier_outputs = \
                 get_masks_and_check_predictions(
                     input_=input_, target=target, model=model,
-                    use_p=args.use_p,
+                    use_p=None,
+                    p_ls=logits_use_p[i * args.batch_size: (i+1) * args.batch_size],
                 )
+
             acc1, acc5 = classification_accuracy(classifier_outputs, target.to(device), topk=(1, 5))
             top1_meter.update(acc1.item(), n=target.shape[0])
             top5_meter.update(acc5.item(), n=target.shape[0])
@@ -302,123 +282,95 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
     return results, candidate_bbox_ls
 
 
-def get_loc_scores(bbox, continuous_mask, rectangular_mask):
-    if bbox.area == 0:
-        return 0, 0
+def get_mask_logits(classifier, masker, input_, use_p):
+    classifier_output, layers = classifier(input_, return_intermediate=True)
+    additional_channels = (
+            masker.maybe_add_prob_layers(layers, use_p)
+            + masker.maybe_add_class_layers(layers, None)
+    )
 
-    truncated_bbox = bbox.clamp(0, 224)
+    layers = masker.append_channels(layers, additional_channels)
 
-    gt_box = np.zeros((224, 224))
-    gt_box[truncated_bbox.yslice, truncated_bbox.xslice] = 1
-
-    f1 = compute_f1(continuous_mask, gt_box, bbox.area)
-    iou = compute_iou(rectangular_mask, gt_box, bbox.area)
-
-    return f1, 1*(iou > 0.5)
-
-
-def clip(x, a, b):
-    if x < a:
-        return a
-    if x > b:
-        return b
-
-    return x
-
-
-def compute_f1(m, gt_box, gt_box_size):
-    with torch.no_grad():
-        inside = (m*gt_box).sum()
-        precision = inside / (m.sum() + 1e-6)
-        recall = inside / gt_box_size
-
-        return (2 * precision * recall)/(precision + recall + 1e-6)
-
-
-def compute_iou(m, gt_box, gt_box_size):
-    with torch.no_grad():
-        intersection = (m*gt_box).sum()
-        return intersection / (m.sum() + gt_box_size - intersection)
-
-
-def compute_saliency_metric(input_, target, bbox_coords, classifier):
-    resized_sliced_input_ls = []
-    area_ls = []
-    for i, bbox in enumerate(bbox_coords):
-        sliced_input_single = imagenet_utils.tensor_to_image_arr(input_[i, :, bbox.yslice, bbox.xslice])
-        if bbox.area > 0:
-            resized_sliced_input_single = cv2.resize(
-                sliced_input_single,
-                (224, 224),
-                interpolation=cv2.INTER_CUBIC,
-            )
+    k = []
+    if 0 in masker.use_layers:
+        if masker.use_layers == (0,):
+            k.append(masker.conv1x1_0(layers[0]))
         else:
-            resized_sliced_input_single = np.zeros([224, 224, 3])
-        area_ls.append(bbox.area)
-        resized_sliced_input_ls.append(resized_sliced_input_single)
-    resized_input = torch.tensor(np.moveaxis(np.array(resized_sliced_input_ls), 3, 1)).float()
+            k.append(layers[0])
+    if 1 in masker.use_layers:
+        k.append(masker.conv1x1_1(layers[1]))
+    if 2 in masker.use_layers:
+        k.append(masker.conv1x1_2(layers[2]))
+    if 3 in masker.use_layers:
+        k.append(masker.conv1x1_3(layers[3]))
+    if 4 in masker.use_layers:
+        k.append(masker.conv1x1_4(layers[4]))
+    final_inputs = torch.cat(k, 1)
+
+    # safety checks cause this is a hack
+    assert isinstance(masker.final[0], nn.Conv2d)
+    assert isinstance(masker.final[1], nn.Sigmoid)
+    assert masker.final[2].__class__.__name__ == "Upsample"
+    assert len(masker.final) == 3
+
+    logits = masker.final[0](final_inputs)
+    big_logits = masker.final[2](logits)
+
+    small_mask = masker.final[1](logits)
+    big_mask = masker.final[2](small_mask)
+    return big_mask, big_logits, classifier_output
+
+
+def get_masks_and_check_predictions(input_, target, model, p_ls, erode_k=0, dilate_k=0, use_p=None):
     with torch.no_grad():
-        cropped_upscaled_yhat = classifier(resized_input.to(device), return_intermediate=False)
-    term_1 = (torch.tensor(area_ls).float() / (224 * 224)).clamp(0.05, 1).log().numpy()
-    term_2 = torch.softmax(cropped_upscaled_yhat, dim=-1).detach().cpu()[
-        torch.arange(cropped_upscaled_yhat.size(0)), target].log().numpy()
-    saliency_metric = term_1 - term_2
-    # Note: not reduced
+        input_, target = input_.clone(), target.clone()
+        input_ = input_.to(device)
+        mask, logits, classifier_output = get_mask_logits(
+            classifier=model["classifier"],
+            masker=model["masker"],
+            input_=input_,
+            use_p=use_p,
+        )
 
-    # Slightly redundant, but doing to validate we're computing things correctly
-    acc1, = classification_accuracy(cropped_upscaled_yhat, target.to(device), topk=(1,))
+        binarized_mask = binarize_logits(logits, p_ls)
+        rectangular = torch.empty_like(binarized_mask)
+        box_coord_ls = [BoxCoords(0, 0, 0, 0)] * len(input_)
 
-    return saliency_metric, term_1, term_2, acc1.item()
+        for idx in range(mask.size(0)):
+            if binarized_mask[idx].sum() == 0:
+                continue
 
+            m = binarized_mask[idx].squeeze().cpu().numpy()
+            if erode_k != 0:
+                m = binary_erosion(m, iterations=erode_k, border_value=1)
+            if dilate_k != 0:
+                m = binary_dilation(m, iterations=dilate_k)
+            rectangular[idx], box_coord_ls[idx] = get_rectangular_mask(m)
 
-def compute_saliency_metric_ground_truth(input_, target, bboxes, paths, classifier):
-    # We need this because there are multiple ground truth bounding boxes per image
-    resized_sliced_input_ls = []
-    area_ls = []
-    img_idx_ls = []
-    target_ls = []
-    for i, path in enumerate(paths):
-        for bbox in get_image_bboxes(bboxes, paths[i]):
-            bbox = bbox.clamp(0, 224)
-            sliced_input_single = imagenet_utils.tensor_to_image_arr(input_[i, :, bbox.yslice, bbox.xslice])
-            # if bbox.area > 1:  # minimum is set to 1 pixel because of inclusive boundaries
-            if bbox.area > 0:
-                resized_sliced_input_single = cv2.resize(
-                    sliced_input_single,
-                    (224, 224),
-                    interpolation=cv2.INTER_CUBIC,
-                )
-            else:
-                resized_sliced_input_single = np.zeros([224, 224, 3])
-            area_ls.append(bbox.area)
-            resized_sliced_input_ls.append(resized_sliced_input_single)
-            img_idx_ls.append(i)
-            target_ls.append(target[i])
-    resized_input = torch.tensor(np.moveaxis(np.array(resized_sliced_input_ls), 3, 1)).float()
-    with torch.no_grad():
-        cropped_upscaled_yhat = classifier(resized_input.to(device), return_intermediate=False)
-    term_1 = (torch.tensor(area_ls).float() / (224 * 224)).clamp(0.05, 1).log()
-    term_2 = torch.softmax(cropped_upscaled_yhat, dim=-1).detach().cpu()[
-        torch.arange(cropped_upscaled_yhat.size(0)), torch.tensor(target_ls)].log()
-    df = pd.DataFrame({
-        "term_1": term_1.numpy(),
-        "term_2": term_2.numpy(),
-        "img_idx": img_idx_ls,
-    })
-    averaged_within_img_df = df.groupby("img_idx").mean().sort_index()
-    saliency_metric = (averaged_within_img_df["term_1"] - averaged_within_img_df["term_2"]).values
-    return saliency_metric, averaged_within_img_df["term_1"].values, averaged_within_img_df["term_2"].values
+        target = target.to(device)
+        _, max_indexes = classifier_output.data.max(1)
+        is_correct = target.eq(max_indexes).long()
+
+        return (
+            mask.squeeze().cpu().numpy(),
+            binarized_mask.cpu().numpy(),
+            rectangular.squeeze().cpu().numpy(),
+            is_correct.cpu().numpy(),
+            box_coord_ls,
+            classifier_output,
+        )
 
 
-def get_image_bboxes(bboxes_dict, path):
-    ls = []
-    for bbox in bboxes_dict[get_path_stub(path)]:
-        ls.append(BoxCoords.from_dict(bbox))
-    return ls
-
-
-def get_path_stub(path):
-    return os.path.basename(path).split('.')[0]
+def binarize_logits(logits, p_ls):
+    n = logits.shape[0]
+    size = 224 * 224
+    flat_logits = logits.view(n, -1).detach().cpu().numpy()
+    flat_binarized = []
+    for j in range(n):
+        flat_binarized.append(rankdata(flat_logits[j]) > (1 - p_ls[j]) * size)
+    return torch.tensor(np.stack(flat_binarized).reshape(
+        n, 1, 224, 224,
+    )).float().cuda()
 
 
 if __name__ == '__main__':
