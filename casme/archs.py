@@ -580,7 +580,7 @@ class Masker(nn.Module):
                 nn.ReLU(inplace=True)
             )
 
-    def forward(self, layers, use_p, class_ids):
+    def forward(self, layers, use_p, class_ids, no_sigmoid=False):
         additional_channels = (
             self.maybe_add_prob_layers(layers, use_p)
             + self.maybe_add_class_layers(layers, class_ids)
@@ -602,7 +602,14 @@ class Masker(nn.Module):
             k.append(self.conv1x1_3(layers[3]))
         if 4 in self.use_layers:
             k.append(self.conv1x1_4(layers[4]))
-        return self.final(torch.cat(k, 1))
+
+        final_input = torch.cat(k, 1)
+
+        if not no_sigmoid:
+            return self.final(final_input)
+        else:
+            assert not self.apply_gumbel
+            return self.final[2](self.final[0](final_input))
 
     def maybe_add_prob_layers(self, layers, use_p):
         if self.add_prob_layers:

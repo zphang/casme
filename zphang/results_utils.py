@@ -155,7 +155,7 @@ class Outputs:
     infilled_masked_in: Any
     infilled_masked_out: Any
     soft_mask_arr: Any
-    # binary_mask_arr: Any
+    binary_mask_arr: Any
 
 
 def run_model(model_wrapper, inputs, plottable=True):
@@ -169,6 +169,7 @@ def run_model(model_wrapper, inputs, plottable=True):
     )
     # soft_masked_image = x * soft_mask
     soft_mask_arr = soft_mask.squeeze().cpu().numpy()
+    binary_mask_arr = binary_mask.squeeze().cpu().numpy()
     x = x[0]
     masked_in_x = masked_in_x[0]
     masked_out_x = masked_out_x[0]
@@ -184,7 +185,7 @@ def run_model(model_wrapper, inputs, plottable=True):
         x,
         masked_in_x, masked_out_x,
         infilled_masked_in, infilled_masked_out,
-        soft_mask_arr,  # binary_mask_arr,
+        soft_mask_arr, binary_mask_arr,
     )
 
 

@@ -147,6 +147,15 @@ def main(args: RunConfiguration):
             bboxes_path=bboxes_path,
             val_json=val_json,
         )
+    elif args.mode == "specific":
+        print(f"Scoring: {args.base_path}")
+        run_single(
+            args=args,
+            mode="casme",
+            casm_path=args.base_path,
+            bboxes_path=bboxes_path,
+            val_json=val_json,
+        )
     else:
         raise KeyError(args.mode)
 
