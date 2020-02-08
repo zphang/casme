@@ -130,7 +130,7 @@ def casme_load_model(casm_path, classifier_load_mode="pickled", verbose=True):
     return {'classifier': classifier, 'masker': masker, 'name': name, 'checkpoint': checkpoint}
 
 
-def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0, use_p=None):
+def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0, use_p=None, no_sigmoid=False):
     with torch.no_grad():
         input_, target = input_.clone(), target.clone()
         mask, output = get_mask(
@@ -138,6 +138,7 @@ def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0
             model=model,
             use_p=use_p,
             get_output=True,
+            no_sigmoid=no_sigmoid,
         )
 
         binarized_mask = binarize_mask(mask.clone())
@@ -169,11 +170,11 @@ def get_masks_and_check_predictions(input_, target, model, erode_k=0, dilate_k=0
         )
 
 
-def get_mask(input_, model, use_p=None, class_ids=None, get_output=False):
+def get_mask(input_, model, use_p=None, class_ids=None, get_output=False, no_sigmoid=False):
     with torch.no_grad():
         input_ = input_.to(device)
         classifier_output, layers = model['classifier'](input_, return_intermediate=True)
-        masker_output = model['masker'](layers, use_p=use_p, class_ids=class_ids)
+        masker_output = model['masker'](layers, use_p=use_p, class_ids=class_ids, no_sigmoid=False)
         if get_output:
             return masker_output, classifier_output
         else:

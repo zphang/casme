@@ -70,8 +70,7 @@ def main(args: RunConfiguration):
         print(plot_base_path)
 
         input_ = input_.to(device)
-        continuous, binarized_mask, rectangular, is_correct, bboxes, classifier_outputs = \
-            get_masks_and_check_predictions(input_, target, model)
+        continuous, _, _, _, _, _ = get_masks_and_check_predictions(input_, target, model, no_sigmoid=True)
         gold_continuous = continuous
         scores = get_scores(gold_continuous, continuous, reduce=False)
         if args.do_plot:
@@ -99,8 +98,7 @@ def main(args: RunConfiguration):
                 desc="cascading")):
             if layer_name not in all_results_dict["cascading"]:
                 all_results_dict["cascading"][layer_name] = {}
-            continuous, binarized_mask, rectangular, is_correct, bboxes, classifier_outputs = \
-                get_masks_and_check_predictions(input_, target, model)
+            continuous, _, _, _, _, _ = get_masks_and_check_predictions(input_, target, model, no_sigmoid=True)
             add_scores(
                 d=all_results_dict["cascading"][layer_name],
                 new_d=get_scores(gold_continuous, continuous, reduce=False)
