@@ -174,7 +174,7 @@ def get_mask(input_, model, use_p=None, class_ids=None, get_output=False, no_sig
     with torch.no_grad():
         input_ = input_.to(device)
         classifier_output, layers = model['classifier'](input_, return_intermediate=True)
-        masker_output = model['masker'](layers, use_p=use_p, class_ids=class_ids, no_sigmoid=False)
+        masker_output = model['masker'](layers, use_p=use_p, class_ids=class_ids, no_sigmoid=no_sigmoid)
         if get_output:
             return masker_output, classifier_output
         else:

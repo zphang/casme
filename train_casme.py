@@ -112,6 +112,8 @@ class RunConfiguration(zconf.RunConfig):
             assert self.mask_out_lambda_tv is None
             self.mask_in_lambda_tv = self.lambda_tv
             self.mask_out_lambda_tv = self.lambda_tv
+        if self.resnet_path == "none":
+            self.resnet_path = None
 
         set_args(self)
 
