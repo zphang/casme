@@ -209,7 +209,7 @@ def main(args: RunConfiguration):
     os.makedirs(output_base_path, exist_ok=True)
     file_name = "{}___{}___{}.json".format(
         args.dataset,
-        args.dataset,
+        args.dataset_split,
         "v2" if args.box_v2_metric else "v1",
     )
     io.write_json({

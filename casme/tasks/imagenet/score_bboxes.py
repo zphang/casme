@@ -160,7 +160,7 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
                 rectangular = continuous
                 bbox_coords = [BoxCoords(0, 224, 0, 224)] * len(target)
             elif model['special'] == 'min':
-                continuous = binarized= np.zeros((args.batch_size, 224, 224))
+                continuous = binarized = np.zeros((args.batch_size, 224, 224))
                 rectangular = continuous
                 bbox_coords = [BoxCoords(0, 0, 0, 0)] * len(target)
             elif model['special'] == 'center':
