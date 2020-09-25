@@ -5,10 +5,11 @@ import pandas as pd
 import time
 
 import torch
+import torch.nn as nn
 import torchvision.transforms as transforms
 
 from casme.stats import AverageMeter, StatisticsContainer
-from casme.model_basics import casme_load_model, get_masks_and_check_predictions, BoxCoords, classification_accuracy
+from casme.model_basics import casme_load_model, get_masks_and_check_predictions, BoxCoords, classification_accuracy, binarize_mask, get_rectangular_mask
 from casme.utils.torch_utils import ImagePathDataset
 import casme.tasks.imagenet.utils as imagenet_utils
 from casme import archs
@@ -70,6 +71,10 @@ def main(args: RunConfiguration):
         model = casme_load_model(args.casm_path, classifier_load_mode=args.classifier_load_mode)
     elif args.mode == "external":
         model = {'special': 'external', 'classifier': original_classifier, 'bboxes': io.read_json(args.casm_path)}
+    elif args.mode == "torchray_grad_cam":
+        model = {'special': 'grad_cam', 'classifier': original_classifier}
+    elif args.mode == "torchray_guided_backprop":
+        model = {'special': 'guided_backprop', 'classifier': original_classifier}
     else:
         raise KeyError(args.mode)
 
@@ -182,6 +187,18 @@ def score(args, model, data_loader, bboxes, original_classifier, record_bboxes=F
                 bbox_coords = [BoxCoords.from_dict(model["bboxes"][get_path_stub(path)]) for path in paths]
                 for j, bbox_coord in enumerate(bbox_coords):
                     rectangular[j, bbox_coord.yslice, bbox_coord.xslice] = 1
+            elif model['special'] == 'grad_cam':
+                continuous, binarized, rectangular, is_correct, bbox_coords = get_torchray_saliency(
+                    original_classifier=original_classifier,
+                    input_=input_, target=target,
+                    method="grad_cam",
+                )
+            elif model['special'] == 'guided_backprop':
+                continuous, binarized, rectangular, is_correct, bbox_coords = get_torchray_saliency(
+                    original_classifier=original_classifier,
+                    input_=input_, target=target,
+                    method="guided_backprop",
+                )
             else:
                 raise KeyError(model["special"])
         else:
@@ -419,6 +436,61 @@ def get_image_bboxes(bboxes_dict, path):
 
 def get_path_stub(path):
     return os.path.basename(path).split('.')[0]
+
+
+def get_torchray_saliency(original_classifier, input_, target, method):
+    upsampler = nn.Upsample(scale_factor=32, mode='bilinear', align_corners=True)
+    input_, target = input_.to(device), target.to(device)
+
+    saliency_ls = []
+    for j in range(len(target)):
+        input_single = input_[j:j + 1]
+        target_single = target[j].item()
+        if method == "grad_cam":
+            from torchray.attribution.grad_cam import grad_cam
+            saliency = grad_cam(
+                model=original_classifier,
+                input=input_single,
+                target=target_single,
+                saliency_layer='layer4',
+            )
+            saliency = upsampler(saliency)
+        elif method == "guided_backprop":
+            from torchray.attribution.guided_backprop import guided_backprop
+            saliency = guided_backprop(
+                model=original_classifier,
+                input=input_single,
+                target=target_single,
+                resize=(224, 224),
+                smooth=0.02,
+            )
+        else:
+            raise KeyError()
+        saliency_ls.append(saliency.detach())
+    mask = torch.cat(saliency_ls, dim=0)
+
+    binarized_mask = binarize_mask(mask.clone())
+    rectangular = torch.empty_like(binarized_mask)
+    box_coord_ls = [BoxCoords(0, 0, 0, 0)] * len(input_)
+
+    for idx in range(mask.size(0)):
+        if binarized_mask[idx].sum() == 0:
+            continue
+
+        m = binarized_mask[idx].squeeze().cpu().numpy()
+        rectangular[idx], box_coord_ls[idx] = get_rectangular_mask(m)
+
+    classifier_output = original_classifier(input_, return_intermediate=False)
+    _, max_indexes = classifier_output.data.max(1)
+    is_correct = target.eq(max_indexes).long()
+
+    return (
+        mask.squeeze().cpu().numpy(),
+        binarized_mask.cpu().numpy(),
+        rectangular.squeeze().cpu().numpy(),
+        is_correct.cpu().numpy(),
+        box_coord_ls,
+    )
 
 
 if __name__ == '__main__':

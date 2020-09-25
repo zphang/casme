@@ -8,9 +8,9 @@ sys.path = [
 import casme.model_basics
 from casme import archs
 import torch
+import torch.nn as nn
 import zconf
 import pyutils.io as io
-import os
 from casme.utils.torch_utils import ImagePathDataset
 import torchvision.transforms as transforms
 import casme.tasks.imagenet.utils as imagenet_utils
@@ -26,7 +26,7 @@ EVAL_ROOT = "/gpfs/scratch/geraslab/zphang/code/wsolevaluation/"
 @zconf.run_config
 class RunConfiguration(zconf.RunConfig):
     cam_loader = zconf.attr(type=str, required=True)
-    casm_base_path = zconf.attr(type=str)
+    casm_base_path = zconf.attr(type=str, default=None)
     output_base_path = zconf.attr(type=str, default=None)
 
     dataset = zconf.attr(type=str)
@@ -39,10 +39,17 @@ class RunConfiguration(zconf.RunConfig):
     batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 256)')
     break_ratio = True
 
+    torchray_method = zconf.attr(default=None)
+
 
 def zeros_cam_loader_getter(image_ids):
     for image_id in image_ids:
         yield torch.zeros([224, 224]), image_id
+
+
+def ones_cam_loader_getter(image_ids):
+    for image_id in image_ids:
+        yield torch.ones([224, 224]), image_id
 
 
 def center_cam_loader_getter(image_ids):
@@ -68,7 +75,7 @@ def rank_and_normalize(x):
     return ranked
 
 
-class CasmeCamLoader:
+class GenerationCamLoader:
     def __init__(self, args: RunConfiguration):
         self.args = args
         self.workers = args.workers
@@ -76,11 +83,6 @@ class CasmeCamLoader:
         self.break_ratio = args.break_ratio
         self.dataset = args.dataset
         self.dataset_split = args.dataset_split
-        casm_path = find_best_model(args.casm_base_path)
-        self.model = casme.model_basics.casme_load_model(
-            casm_path=casm_path,
-            classifier_load_mode=args.classifier_load_mode,
-        )
 
     def getter(self, image_ids):
         if self.dataset == "ILSVRC" and self.dataset_split == "test":
@@ -120,13 +122,7 @@ class CasmeCamLoader:
             batch_size=self.batch_size, shuffle=False, num_workers=self.workers, pin_memory=False
         )
         for i, ((input_, target), paths) in enumerate(data_loader):
-            mask, output = casme.model_basics.get_mask(
-                input_=input_,
-                model=self.model,
-                use_p=None,
-                get_output=True,
-                no_sigmoid=False,
-            )
+            mask = self.get_mask(input_=input_, target=target)
             mask = mask.detach().cpu().squeeze(1)
             for j, single_mask in enumerate(mask):
                 if self.dataset == "ILSVRC" and self.dataset_split == "test":
@@ -135,16 +131,85 @@ class CasmeCamLoader:
                     image_id = paths[j][len(data_loader.dataset.root) + 1:]
                 yield single_mask, image_id
 
+    def get_mask(self, input_, target):
+        raise NotImplementedError()
+
+
+class CasmeCamLoader(GenerationCamLoader):
+    def __init__(self, args: RunConfiguration):
+        super().__init__(args=args)
+        casm_path = find_best_model(args.casm_base_path)
+        self.model = casme.model_basics.casme_load_model(
+            casm_path=casm_path,
+            classifier_load_mode=args.classifier_load_mode,
+        )
+
+    def get_mask(self, input_, target):
+        mask, output = casme.model_basics.get_mask(
+            input_=input_,
+            model=self.model,
+            use_p=None,
+            get_output=True,
+            no_sigmoid=False,
+        )
+        return mask
+
+
+class TorchrayCamLoader(GenerationCamLoader):
+    def __init__(self, args: RunConfiguration):
+        super().__init__(args=args)
+        self.torchray_method = args.torchray_method
+        self.grad_cam_upsampler = nn.Upsample(scale_factor=32, mode='bilinear', align_corners=True)
+        self.original_classifier = archs.resnet50shared(pretrained=True)
+
+    def get_mask(self, input_, target):
+        saliency_ls = []
+        for j in range(len(target)):
+            input_single = input_[j:j + 1]
+            target_single = target[j].item()
+            if self.torchray_method == "grad_cam":
+                from torchray.attribution.grad_cam import grad_cam
+                saliency = grad_cam(
+                    model=self.original_classifier,
+                    input=input_single,
+                    target=target_single,
+                    saliency_layer='layer4',
+                )
+                saliency = self.grad_cam_upsampler(saliency)
+            elif self.torchray_method == "guided_backprop":
+                from torchray.attribution.guided_backprop import guided_backprop
+                saliency = guided_backprop(
+                    model=self.original_classifier,
+                    input=input_single,
+                    target=target_single,
+                    resize=(224, 224),
+                    smooth=0.02,
+                )
+            else:
+                raise KeyError()
+            if saliency.max() == saliency.min():
+                saliency[:] = 1
+            else:
+                saliency = (saliency - saliency.min()) / (saliency.max() - saliency.min())
+            saliency_ls.append(saliency.detach())
+        return torch.cat(saliency_ls, dim=0)
+
 
 def get_cam_loader_getter(args: RunConfiguration):
     if args.cam_loader == "zeros":
         return zeros_cam_loader_getter
+    elif args.cam_loader == "ones":
+        return ones_cam_loader_getter
     elif args.cam_loader == "center":
         return center_cam_loader_getter
     elif args.cam_loader == "gaussian":
         return gaussian_cam_loader_getter
     elif args.cam_loader == "casme":
         return CasmeCamLoader(args).getter
+    elif args.cam_loader == "torchray":
+        return TorchrayCamLoader(args).getter
+    else:
+        raise KeyError()
 
 
 def evaluate_wsol_from_cam_loader(
