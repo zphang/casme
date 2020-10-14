@@ -40,6 +40,7 @@ class RunConfiguration(zconf.RunConfig):
     break_ratio = True
 
     torchray_method = zconf.attr(default=None)
+    casme_load_mode = zconf.attr(type=str, default="best")
 
 
 def zeros_cam_loader_getter(image_ids):
@@ -138,7 +139,12 @@ class GenerationCamLoader:
 class CasmeCamLoader(GenerationCamLoader):
     def __init__(self, args: RunConfiguration):
         super().__init__(args=args)
-        casm_path = find_best_model(args.casm_base_path)
+        if args.casme_load_mode == "best":
+            casm_path = find_best_model(args.casm_base_path)
+        elif args.casme_load_mode == "specific":
+            casm_path = args.casm_base_path
+        else:
+            raise KeyError(args.casme_load_mode)
         self.model = casme.model_basics.casme_load_model(
             casm_path=casm_path,
             classifier_load_mode=args.classifier_load_mode,
