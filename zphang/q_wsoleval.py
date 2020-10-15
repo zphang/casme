@@ -1,10 +1,3 @@
-import sys
-sys.path = [
-    "/gpfs/data/geraslab/zphang/code/othergits/munch/",
-    "/gpfs/data/geraslab/zphang/code/wsolevaluation/",
-] + sys.path
-
-
 import casme.model_basics
 from casme import archs
 import torch
@@ -19,8 +12,6 @@ from scipy.stats import multivariate_normal
 from evaluation import *
 from tqdm import auto as tqdm_lib
 from zphang.utils import find_best_model
-
-EVAL_ROOT = "/gpfs/scratch/geraslab/zphang/code/wsolevaluation/"
 
 
 @zconf.run_config
@@ -39,6 +30,12 @@ class RunConfiguration(zconf.RunConfig):
     batch_size = zconf.attr(default=128, type=int, help='mini-batch size (default: 256)')
     break_ratio = True
 
+    # === Dataset-specific === #
+    # Used for ILSVRC/test
+    imagenet_val_path = zconf.attr(type=str, default=None)
+    wsoleval_dataset_path = zconf.attr(type=str, default=None)
+
+    # === Method-specific === #
     torchray_method = zconf.attr(default=None)
     casme_load_mode = zconf.attr(type=str, default="best")
 
@@ -87,13 +84,13 @@ class GenerationCamLoader:
 
     def getter(self, image_ids):
         if self.dataset == "ILSVRC" and self.dataset_split == "test":
-            dataset_config = io.read_json("/gpfs/data/geraslab/zphang/working/1912/29_new_metadata/val.json")
+            dataset_config = io.read_json(self.args.imagenet_val_path)
             path_to_image_id_dict = {
                 x[0]: "val/" + x[0].split("/")[-1]
                 for x in dataset_config["samples"]
             }
         else:
-            dataset_root = os.path.join(EVAL_ROOT, "dataset", self.dataset)
+            dataset_root = os.path.join(self.args.wsoleval_dataset_path, self.dataset)
             image_paths_and_labels = []
             for image_id in image_ids:
                 dummy_label = 0
@@ -102,7 +99,7 @@ class GenerationCamLoader:
                     dummy_label,
                 ))
             dataset_config = {
-                "root": os.path.join(EVAL_ROOT, "dataset", self.dataset),
+                "root": os.path.join(self.args.wsoleval_dataset_path, self.dataset),
                 "samples": image_paths_and_labels,
                 "classes": None,
                 "class_to_idx": None,

@@ -64,14 +64,14 @@ def resize_pos(raw_pos, width, height, break_ratio):
 
 
 def get_annotations(data_path, annotation_path, break_ratio):
-    paths = glob.glob(os.path.join(data_path, 'val', "*", "*"))
+    paths = glob.glob(os.path.join(data_path, "*", "*"))
     bboxes = {}
     metadata_dict = {}
     for path in tqdm.tqdm(paths):
         ann_path = os.path.join(annotation_path, os.path.basename(path)).split('.')[0] + '.xml'
 
         if not os.path.isfile(ann_path):
-            raise KeyError("Annotations aren't found. Aborting!")
+            raise KeyError(f"Annotations aren't found at {ann_path}. Aborting!")
 
         category = path.split('/')[-2]
         bbox_ls, metadata = get_gt_boxes(

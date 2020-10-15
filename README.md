@@ -1,99 +1,128 @@
-# Classifier-agnostic saliency map extraction
+# Investigating and Simplifying Masking-based Saliency Methods for Model Interpretability
 
-## Example of using classifier-agnostic saliency map extraction on ImageNet
+This repository contains code for running and replicating the experiments from [Investigating and Simplifying Masking-based Saliency Methods for Model Interpretability](PLACEHOLDER_URL). It is a modified fork of [Classifier-Agnostic Saliency Map Extraction](https://github.com/kondiz/casme), and contains the code originally forked from the [ImageNet training in PyTorch](https://github.com/pytorch/examples/tree/master/imagenet).
 
-This repository contains the code originally forked from the [ImageNet training in PyTorch](https://github.com/pytorch/examples/tree/master/imagenet) that is modified to present the performance of [classifier-agnostic saliency map extraction](https://arxiv.org/abs/1805.08249), a practical algorithm to train a classifier-agnostic saliency mapping by simultaneously training a classifier and a saliency mapping. The method was proposed by Konrad Żołna, Krzysztof J. Geras and Kyunghyun Cho.
-
-The authors would like to acknowledge the code review done by Jason Phang ([zphang](https://github.com/zphang)).
 
 ## Software requirements
 
-+ `Python 3.6` and `PyTorch 0.4` for training procedure (`train.py`).
-+ The `bs4` library to run `score.py` that computes localization metrics described in the paper.
-+ The `opencv-python` library to inpaint images which is needed to run `eval.py` and `plot.py`.
+- This repository requires Python 3.7 or later
+- If want to use the PxAP metric from [Evaluating Weakly Supervised Object Localization Methods Right](https://arxiv.org/abs/2007.04178):
+    - `git clone https://github.com/clovaai/wsolevaluation` and add it to your `PYTHONPATH`
+    - `pip install munch` (as well as any other requirements listed [here](https://github.com/clovaai/wsolevaluation#3-code-dependencies))
+- If you want to run the Grad-CAM and Guided-backprop saliency methods:
+    - `pip install torchray`, or `git clone https://github.com/facebookresearch/TorchRay` and add it to your `PYTHONPATH`
+- If you want to use the CA-GAN infiller from [Generative Image Inpainting with Contextual Attention](https://arxiv.org/abs/1801.07892)
+    - `git clone https://github.com/daa233/generative-inpainting-pytorch` and add it to your `PYTHONPATH`
+    - Download the linked [pretrained model](https://github.com/daa233/generative-inpainting-pytorch#test-with-the-trained-model) for PyTorch
+- If you want to use the DFNet infiller from [https://arxiv.org/abs/1904.08060](https://arxiv.org/abs/1904.08060)
+    - `git clone git@github.com:hughplay/DFNet.git` and add it to your `PYTHONPATH`
+    - Download the linked [pretrained model](https://github.com/hughplay/DFNet#testing) for PyTorch
 
-## Setup
 
-ImageNet dataset should be stored in `IMAGENET-PATH` path and set up in the usual way (separate `train` and `val` folders with 1000 subfolders each). See [this repo](https://github.com/facebook/fb.resnet.torch/blob/master/INSTALL.md#download-the-imagenet-dataset) for detailed instructions how to download and set up the dataset.
+## Data requirements
 
-ImageNet annotations should be in `IMAGENET-ANN` directory that contains 50000 files named `ILSVRC2012_val_<id>.xml` where `<id>` is the validation image id (for example `ILSVRC2012_val_00050000.xml`). It may be simply obtained by unzipping [the official validation bounding box annotations archive](http://www.image-net.org/challenges/LSVRC/2012/nnoupb/ILSVRC2012_bbox_val_v3.tgz) to `IMAGENET-ANN` directory.
+- ImageNet dataset should be stored in `IMAGENET_PATH` path and set up in the usual way (separate `train` and `val` folders with 1000 subfolders each). See [this repo](https://github.com/facebook/fb.resnet.torch/blob/master/INSTALL.md#download-the-imagenet-dataset) for detailed instructions how to download and set up the dataset.
+- ImageNet annotations should be in `IMAGENET_ANN` directory that contains 50000 files named `ILSVRC2012_val_<id>.xml` where `<id>` is the validation image id (for example `ILSVRC2012_val_00050000.xml`). It may be simply obtained by unzipping [the official validation bounding box annotations archive](http://www.image-net.org/challenges/LSVRC/2012/nnoupb/ILSVRC2012_bbox_val_v3.tgz) to `IMAGENET-ANN` directory.
+- Bounding box annotations for parts of the training set can downloaded from [here](http://image-net.org/Annotation/Annotation.tar.gz). This is used for our Train-Validation set. 
+- If want to use the MaxBoxAcc or PxAP metrics from [Evaluating Weakly Supervised Object Localization Methods Right](https://arxiv.org/abs/2007.04178):
+    - Download the relevant datasets in described [here](https://github.com/clovaai/wsolevaluation#2-dataset-downloading-and-license)
 
-A directory `CASMS-PATH` is used to store all trained models.
+## Running the code
 
-## How to run the code
+We will assume that experiments will be run in the following folder:
+
+```bash
+export EXP_DIR=/path/to/experiments
+```
+
+### Data Preparation
+To facilitate effective subsetting and label shuffling for the ImageNet training set, we write a JSON files containing the paths to the example images, and their corresponding labels. These will be consumed by a modified ImageNet PyTorch Dataset.
+
+Run the following command:
+
+```bash
+python3 casme/tasks/imagenet/preproc.py \
+    --train_path ${IMAGENET_PATH}/train \
+    --val_path ${IMAGENET_PATH}/val \
+    --val_annotation_path ${IMAGENET_ANN} \
+    --output_base_path ${EXP_DIR}/metadata
+```
+
+To use bounding boxes for the Train-Validation set, unzip the downloaded data from [here](http://image-net.org/Annotation/Annotation.tar.gz), and provided an additional argument `--extended_annot_base_path`.
+
+We also condense the bounding box annotations for the validation set into a single JSON. Run the following command:
+
+```bash
+python zphang/imagenet_anno_script.py \
+    --data_path ${IMAGENET_PATH} \
+    --annotation_path ${IMAGENET_ANN} \
+    --output_path /gpfs/data/geraslab/zphang/working/190624_new_casme/imagenet_annotation.json
+```
 
 ### Training
 
-The easiest way to train classifier-agnostic saliency mapping (CASM) is to run
+To train a ASME or CASME model, you can run:
 
-+ `python3 train.py IMAGENET-PATH --casms-path CASMS-PATH --log-path LOG-PATH --reproduce L`
+```bash
+python train_casme.py \
+    --train_json ${EXP_DIR}/metadata/train.json \
+    --val_json ${EXP_DIR}/metadata/val.json \
+    --ZZsrc ./assets/asme.json \
+    --masker_use_layers 3,4 \
+    --output_path ${EXP_DIR}/runs/ \
+    --epochs 60 --lrde 20 \
+    --name asme
 
-where `LOG-PATH` is a directory for the log to be saved at. The `--reproduce` option sets all hyperparameters linked with a given thinning strategy to reproduce results from [the paper](https://arxiv.org/abs/1805.08249) (possible options `F|L|FL|L100|L1000`, see the paper for details).
+python train_casme.py \
+    --train_json ${EXP_DIR}/metadata/train.json \
+    --val_json ${EXP_DIR}/metadata/val.json \
+    --ZZsrc ./assets/casme.json \
+    --masker_use_layers 3,4 \
+    --output_path ${EXP_DIR}/runs/ \
+    --epochs 60 --lrde 20 \
+    --name casme
+```
 
-For the comparison, one can try `--reproduce F` which results in training classifier-dependent saliency mapping (called Baseline in the paper).
+- The `--ZZsrc` arguments provide JSON files with additional options for the command-line interface. `./assets/asme.json` and `./assets/casme.json` contain options and final hyper-parameters chosen for the ASME and CASME models in the paper. 
+- We also only use the 4th and 5th layers from the classifier in the masker model.
+- `--train_json` and `--val_json` point to the JSON files containing the paths to the example images, and their corresponding labels, described above.
 
-### Object localization (and basic statistics)
+### Evaluation
 
-Once the saliency mappings are trained and stored in `CASMS-PATH` one can run 
+To evaluate the model on WSOL metrics and Saliency Metric, run:
 
-+ `python3 score.py IMAGENET-PATH --annotation-path IMAGENET-ANN --casms-path CASMS-PATH`
-or
-+ `python3 score.py IMAGENET-PATH --annotation-path IMAGENET-ANN --casms-path CASMS-PATH --log-path LOG-PATH --save-to-file`
+```bash
+python casme/tasks/imagenet/score_bboxes.py \
+    --val_json ${EXP_DIR}/metadata/val.json \
+    --mode casme \
+    --bboxes_path ${EXP_DIR}/metadata/val_bboxes.json \
+    --casm_path ${EXP_DIR}/runs/casme/epoch_XXX.chk \
+    --output_path ${EXP_DIR}/runs/casme/epoch_XXX_score1.json \
+``` 
 
-where `LOG-PATH` is again the directory for logs to be saved at (note that the directory may be a different than the one used to store training logs since the training logs are not used in the evaluation).
+where `epoch_XXX.chk` corresponds to the model checkpoint you want to evaluate. Add argument `--eval_mode val` to run on the actual validation set. Note that the mode should be `casme` regardless of whether you are using CASME or ASME models.
 
-For each CASM in `CASMS-PATH` the basic statistics and localization metrics are computed and (if `--log-path LOG-PATH --save-to-file` is used) saved as a separate file in `LOG-PATH`.
+To evaluate the model on PxAP, run:
 
-#### Score your own architecture
-
-The script `score.py` uses two functions `load_model` and `get_masks_and_check_predictions` from `model_basics.py`. It should be simple to reimplement them to score a new architecture. Since converting a Torch Tensor to a NumPy array and vice versa is a breeze, the `get_masks_and_check_predictions` is implemented in the way that inputs and outputs are NumPy arrays to make the adjustment procedure to a new model even simpler.
-
-The function `get_masks_and_check_predictions` takes as an input a batch of images, corresponding ground truth targets and the dictionary describing the model (that is, an output of the function `load_model` which takes the path to the model as an argument). By default, the images are normalized which can be deactivated with `--not-normalize` flag if one prefers to use its own normalization. The output of `get_masks_and_check_predictions` are three NumPy arrays.
-+ Batch of continuous masks (size: `BATCH_SIZEx224x224`). This array contains masks predicted for the entire `224x224` pixel images (values between zero and one).
-+ Batch of rectangular predictions (size: `BATCH_SIZEx224x224`) corresponding to object localizations, that are necessary to compute the scores. Each rectangle is obtained from continuous mask and is represented by a block of ones on the background of zeros.
-+ NumPy array consisting of `BATCH_SIZE` binary values. The value in the array corresponding to a given images is one if the classifier makes a correct prediction for this image or zero otherwise. This array is necessary to compute the OM metric (see [the paper](https://arxiv.org/abs/1805.08249) for details).
-
-### Classification by multiple classifiers
-
-Similarly to `score.py` one can run
-
-+ `python3 eval.py IMAGENET-PATH --casms-path CASMS-PATH`
-or
-+ `python3 eval.py IMAGENET-PATH --casms-path CASMS-PATH --log-path LOG-PATH --save-to-file`
-
-to get classification accuracy for modified images (masked-in, masked-out and inpainted masked-out images, see [the paper](https://arxiv.org/abs/1805.08249) for definitions).
-
-The option `--resnets-path RESNETS-PATH` can be used to load pre-trained classifiers from the `RESNETS-PATH` that will be also evaluated. It is assumed that these classifiers are all ResNet-50 and are saved in the format like in [this official repository](https://github.com/pytorch/examples/tree/master/imagenet).
-
-### Visualization
-
-To plot visualizations one can run
-
-+ `python3 plot.py IMAGENET-PATH --casm-path SINGLE-CASM-PATH --plots-path PLOTS-PATH`
-
-where `SINGLE-CASM-PATH` is a path to a single CASM (not a directory) and `PLOTS-PATH` is a directory where visualizations for a given CASM will be saved.
-
-The exemplary visualization is below (see the caption of Figure 2 from [the paper](https://arxiv.org/abs/1805.08249) for the description).
-
-![UI](visualization.png)
-
-### Additional options
-
-There are a few hyper-parameters of the training procedure. Running
-
-+ `python3 train.py --help`
-
-displays the full list of them. The same works for `score.py`, `eval.py` and `plot.py`.
+```bash
+python zphang/q_wsoleval.py \
+    --cam_loader casme \
+    --casm_base_path ${EXP_DIR}/runs/casme/epoch_XXX.chk \
+    --casme_load_mode specific \
+    --dataset OpenImages \
+    --dataset_split test
+```
 
 ## Reference
 
-If you found this code useful, please cite [the following paper](https://arxiv.org/abs/1805.08249):
+If you found this code useful, please cite [the following paper](PLACEHOLDER_URL):
 
-Konrad Żołna, Krzysztof J. Geras, Kyunghyun Cho. **"Classifier-agnostic saliency map extraction."** *arXiv preprint arXiv:1805.08249 (2018).*
-
-    @article{zolna2018classifier,
-      title={Classifier-agnostic saliency map extraction},
-      author={Zolna, Konrad and Geras, Krzysztof J and Cho, Kyunghyun},
-      journal={arXiv preprint arXiv:1805.08249,
-      year={2018}
-    }
+Jason Phang, Jungkyu Park, Krzsyztof J. Geras **"Investigating and Simplifying Masking-based Saliency Methods for Model Interpretability."** *arXiv preprint arXiv:XXXX.XXXXX (2020).*
+```
+@article{phang2020investigating,
+  title={Investigating and Simplifying Masking-based Saliency Methods for Model Interpretability},
+  author={Phang, Jason and Park, Jungkyu and Geras, Krzysztof J},
+  journal={arXiv preprint arXiv:XXXX.XXXXX,
+  year={2020}
+}
+```
