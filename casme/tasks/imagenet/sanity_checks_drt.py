@@ -6,11 +6,10 @@ import torchvision.transforms as transforms
 
 import casme.tasks.imagenet.utils as imagenet_utils
 from casme.utils.torch_utils import ImagePathDataset
-from casme.model_basics import casme_load_model, binarize_mask
-
+from casme.model_basics import casme_load_model
 
 import zconf
-from zphang.sanity_checks import get_scores, add_scores
+from casme.tasks.imagenet.sanity_checks import get_scores, add_scores
 import pyutils.io as io
 
 

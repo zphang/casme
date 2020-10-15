@@ -1,17 +1,20 @@
-import casme.model_basics
-from casme import archs
-import torch
-import torch.nn as nn
 import zconf
 import pyutils.io as io
-from casme.utils.torch_utils import ImagePathDataset
-import torchvision.transforms as transforms
-import casme.tasks.imagenet.utils as imagenet_utils
 from scipy.stats import rankdata
 from scipy.stats import multivariate_normal
-from evaluation import *
 from tqdm import auto as tqdm_lib
-from zphang.utils import find_best_model
+
+import torch
+import torch.nn as nn
+import torchvision.transforms as transforms
+
+import casme.model_basics
+import casme.tasks.imagenet.utils as imagenet_utils
+import casme.utils.results_utils as results_utils
+from casme import archs
+from casme.utils.torch_utils import ImagePathDataset
+
+from evaluation import *
 
 
 @zconf.run_config
@@ -137,7 +140,7 @@ class CasmeCamLoader(GenerationCamLoader):
     def __init__(self, args: RunConfiguration):
         super().__init__(args=args)
         if args.casme_load_mode == "best":
-            casm_path = find_best_model(args.casm_base_path)
+            casm_path = results_utils.find_best_model(args.casm_base_path)
         elif args.casme_load_mode == "specific":
             casm_path = args.casm_base_path
         else:

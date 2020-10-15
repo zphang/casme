@@ -5,7 +5,25 @@ This repository contains code for running and replicating the experiments from [
 
 ## Software requirements
 
-- This repository requires Python 3.7 or later
+- This repository requires Python 3.7 or later.
+- Experiments were run with the following library versions:
+
+```
+pytorch==1.2.0
+torchvision==0.4.0
+opencv==3.4.7
+beautifulsoup4==4.8.1
+tqdm==4.35.0
+pandas==0.24.2
+scikit-learn==0.20.2
+scipy==1.3.0 
+```
+
+In addition, `git clone https://github.com/zphang/zutils` and add it to your `PYTHONPATH`
+
+
+**Additional requirements**
+
 - If want to use the PxAP metric from [Evaluating Weakly Supervised Object Localization Methods Right](https://arxiv.org/abs/2007.04178):
     - `git clone https://github.com/clovaai/wsolevaluation` and add it to your `PYTHONPATH`
     - `pip install munch` (as well as any other requirements listed [here](https://github.com/clovaai/wsolevaluation#3-code-dependencies))
@@ -15,7 +33,7 @@ This repository contains code for running and replicating the experiments from [
     - `git clone https://github.com/daa233/generative-inpainting-pytorch` and add it to your `PYTHONPATH`
     - Download the linked [pretrained model](https://github.com/daa233/generative-inpainting-pytorch#test-with-the-trained-model) for PyTorch
 - If you want to use the DFNet infiller from [https://arxiv.org/abs/1904.08060](https://arxiv.org/abs/1904.08060)
-    - `git clone git@github.com:hughplay/DFNet.git` and add it to your `PYTHONPATH`
+    - `git clone https://github.com/hughplay/DFNet` and add it to your `PYTHONPATH`
     - Download the linked [pretrained model](https://github.com/hughplay/DFNet#testing) for PyTorch
 
 
@@ -105,7 +123,7 @@ where `epoch_XXX.chk` corresponds to the model checkpoint you want to evaluate. 
 To evaluate the model on PxAP, run:
 
 ```bash
-python zphang/q_wsoleval.py \
+python casme/tasks/imagenet/wsoleval.py \
     --cam_loader casme \
     --casm_base_path ${EXP_DIR}/runs/casme/epoch_XXX.chk \
     --casme_load_mode specific \
