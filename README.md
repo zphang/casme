@@ -31,11 +31,11 @@ In addition, `git clone https://github.com/zphang/zutils` and add it to your `PY
     - `pip install torchray`, or `git clone https://github.com/facebookresearch/TorchRay` and add it to your `PYTHONPATH`
 - If you want to use the CA-GAN infiller from [Generative Image Inpainting with Contextual Attention](https://arxiv.org/abs/1801.07892)
     - `git clone https://github.com/daa233/generative-inpainting-pytorch` and add it to your `PYTHONPATH`
-    - Download the linked [pretrained model](https://github.com/daa233/generative-inpainting-pytorch#test-with-the-trained-model) for PyTorch
+    - Download the linked [pretrained model](https://github.com/daa233/generative-inpainting-pytorch#test-with-the-trained-model) for PyTorch, and set environment variable `CA_MODEL_PATH` to point to it 
 - If you want to use the DFNet infiller from [https://arxiv.org/abs/1904.08060](https://arxiv.org/abs/1904.08060)
     - `git clone https://github.com/hughplay/DFNet` and add it to your `PYTHONPATH`
-    - Download the linked [pretrained model](https://github.com/hughplay/DFNet#testing) for PyTorch
-
+    - Download the linked [pretrained model](https://github.com/hughplay/DFNet#testing) for PyTorch, and set environment variable `DFNET_MODEL_PATH` to point to it
+    
 
 ## Data requirements
 
@@ -67,15 +67,6 @@ python3 casme/tasks/imagenet/preproc.py \
 ```
 
 To use bounding boxes for the Train-Validation set, unzip the downloaded data from [here](http://image-net.org/Annotation/Annotation.tar.gz), and provided an additional argument `--extended_annot_base_path`.
-
-We also condense the bounding box annotations for the validation set into a single JSON. Run the following command:
-
-```bash
-python zphang/imagenet_anno_script.py \
-    --data_path ${IMAGENET_PATH} \
-    --annotation_path ${IMAGENET_ANN} \
-    --output_path /gpfs/data/geraslab/zphang/working/190624_new_casme/imagenet_annotation.json
-```
 
 ### Training
 
@@ -128,8 +119,13 @@ python casme/tasks/imagenet/wsoleval.py \
     --casm_base_path ${EXP_DIR}/runs/casme/epoch_XXX.chk \
     --casme_load_mode specific \
     --dataset OpenImages \
-    --dataset_split test
+    --dataset_split test \
+    --dataset_path ${WSOLEVAL_PATH}/data \
+    --metadata_path ${WSOLEVAL_PATH}/metadata
 ```
+
+where `WSOLEVAL_PATH` is the location where [wsolevaluation](https://github.com/clovaai/wsolevaluation) has been clone to, and after running the relevant dataset downloading scripts.
+
 
 ## Reference
 

@@ -1,4 +1,5 @@
 import math
+import os
 import types
 
 import torch
@@ -724,9 +725,7 @@ class CAInfillerWrapper(nn.Module):
             use_cuda=True,
             device_ids=[0],
         )
-        self.generator.load_state_dict(torch.load(
-            "/gpfs/data/geraslab/zphang/working/190504_infill/pretrained_models/torch_model_generator.p"
-        ))
+        self.generator.load_state_dict(torch.load(os.environ["CA_MODEL_PATH"]))
 
     def forward(self, masked_x, mask, x, mask_mode):
         # masked_x: normalize from [0, 1]
@@ -750,7 +749,7 @@ class DFNInfillerWrapper(nn.Module):
         from casme.ext.dfnet import DFNet
         self.model = DFNet()
         self.model.load_state_dict(torch.load(
-            "/gpfs/data/geraslab/zphang/code/DFNet/model/model_places2.pth",
+            os.environ["DFNET_MODEL_PATH"],
             map_location=torch.device("cpu"),
         ))
         self.model.eval()

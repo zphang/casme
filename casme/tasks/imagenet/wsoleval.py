@@ -25,6 +25,8 @@ class RunConfiguration(zconf.RunConfig):
 
     dataset = zconf.attr(type=str)
     dataset_split = zconf.attr(type=str)
+    dataset_path = zconf.attr(type=str)
+    metadata_path = zconf.attr(type=str)
     cam_curve_interval = zconf.attr(type=float, default=0.01)
     box_v2_metric = zconf.attr(action="store_true")
 
@@ -264,8 +266,8 @@ def main(args: RunConfiguration):
 
     performance = evaluate_wsol_from_cam_loader(
         cam_loader_getter=cam_loader_getter,
-        metadata_root="/gpfs/scratch/geraslab/zphang/code/wsolevaluation/metadata/",
-        mask_root="/gpfs/scratch/geraslab/zphang/code/wsolevaluation/dataset",
+        metadata_root=args.metadata_path,
+        mask_root=args.dataset_path,
         dataset_name=args.dataset,
         split=args.dataset_split,
         multi_contour_eval=multi_contour_eval,
